@@ -623,6 +623,70 @@ cleanup:
   return YES;
 }
 
+- (BOOL)copyConflict:(NSString*)path fromOtherIndex:(GCIndex*)otherIndex toIndex:(GCIndex*)index error:(NSError**)error {
+	const git_index_entry* ancestor;
+	const git_index_entry* our;
+	const git_index_entry* their;
+	CALL_LIBGIT2_FUNCTION_RETURN(NO, git_index_conflict_get, &ancestor, &our, &their, otherIndex.private, GCGitPathFromFileSystemPath(path));
+	
+	if (!(ancestor == NULL)) {
+		CALL_LIBGIT2_FUNCTION_RETURN(NO, git_index_add, index.private, ancestor);
+	}
+	if (!(our == NULL)) {
+		CALL_LIBGIT2_FUNCTION_RETURN(NO, git_index_add, index.private, our);
+	}
+	if (!(their == NULL)) {
+		CALL_LIBGIT2_FUNCTION_RETURN(NO, git_index_add, index.private, their);
+	}
+	
+	return YES;
+}
+
+/// Works for both files and conflicts.
+- (BOOL)removeEntry:(NSString*)path fromIndex:(GCIndex*)index failIfMissing:(BOOL)failIfMissing error:(NSError**)error {
+	const size_t firstMatchingEntryPosition;
+	const BOOL indexHasMatchingEntries = git_index_find(&firstMatchingEntryPosition, index.private, GCGitPathFromFileSystemPath(path)) == 0;
+	
+	if (indexHasMatchingEntries) {
+		const git_index_entry *firstMatchingEntry = git_index_get_byindex(index.private, firstMatchingEntryPosition);
+		const BOOL indexHasConflictForPath = git_index_entry_is_conflict(firstMatchingEntry);
+		
+		if (indexHasConflictForPath) {
+			return [self clearConflictForFile:path inIndex:index error:error];
+		} else {
+			return [self removeFile:path fromIndex:index error:error];
+		}
+	}
+	
+	return !failIfMissing;
+}
+
+/// Works for both files and conflicts, and first removes all entries for that path from the target index.
+- (BOOL)syncEntry:(NSString*)path fromOtherIndex:(GCIndex*)otherIndex toIndex:(GCIndex*)index error:(NSError**)error {
+	// First, remove entries for that path in the target index
+	if (![self removeEntry:path fromIndex:index failIfMissing:NO error:error]) {
+		return NO;
+	}
+	
+	// Then, call copyFile or copyConflict
+	const size_t firstMatchingSourceEntryPosition;
+	const BOOL sourceHasMatchingEntries = git_index_find(&firstMatchingSourceEntryPosition, otherIndex.private, GCGitPathFromFileSystemPath(path)) == 0;
+	
+	if (!sourceHasMatchingEntries) {
+		// This means we're trying to copy an entry that doesn't exist. Our job is done: we just cleared the target.
+		return YES;
+	}
+	
+	const git_index_entry *firstMatchingSourceEntry = git_index_get_byindex(otherIndex.private, firstMatchingSourceEntryPosition);
+	const BOOL sourceHasConflictForPath = git_index_entry_is_conflict(firstMatchingSourceEntry);
+	
+	if (sourceHasConflictForPath) {
+		return [self copyConflict:path fromOtherIndex:otherIndex toIndex:index error:error];
+	} else {
+		return [self copyFile:path fromOtherIndex:otherIndex toIndex:index error:error];
+	}
+}
+
 - (BOOL)copyLinesInFile:(NSString*)path fromOtherIndex:(GCIndex*)otherIndex toIndex:(GCIndex*)index error:(NSError**)error usingFilter:(GCIndexLineFilter)filter {
   const char* filePath = GCGitPathFromFileSystemPath(path);
 
