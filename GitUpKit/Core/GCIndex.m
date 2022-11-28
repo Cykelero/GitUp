@@ -748,4 +748,56 @@ cleanup:
 
 #endif
 
+// Copy of -addAllFilesToIndex: that also stages ignored files
+- (BOOL)addAllFilesToIndexIncludingIgnored:(NSError**)error filterBy:(BOOL (^)(NSString* path))fileFilter {
+	BOOL success = NO;
+	git_index* index = NULL;
+	git_status_list* list = NULL;
+	
+	index = [self reloadRepositoryIndex:error];
+	if (index == NULL) {
+		goto cleanup;
+	}
+	git_status_options options = GIT_STATUS_OPTIONS_INIT;
+	options.show = GIT_STATUS_SHOW_WORKDIR_ONLY;
+	options.flags = GIT_STATUS_OPT_INCLUDE_UNTRACKED | GIT_STATUS_OPT_RECURSE_UNTRACKED_DIRS | GIT_STATUS_OPT_INCLUDE_IGNORED | GIT_STATUS_OPT_RECURSE_IGNORED_DIRS;
+	CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_status_list_new, &list, self.private, &options);
+	for (size_t i = 0, count = git_status_list_entrycount(list); i < count; ++i) {
+		const git_status_entry* entry = git_status_byindex(list, i);
+		switch (entry->status) {
+			case GIT_STATUS_WT_NEW:
+			case GIT_STATUS_WT_MODIFIED:
+			case GIT_STATUS_WT_TYPECHANGE:
+			case GIT_STATUS_IGNORED:
+				if (!fileFilter([NSString stringWithUTF8String:entry->index_to_workdir->new_file.path])) {
+					continue;
+				}
+				CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_index_add_bypath, index, entry->index_to_workdir->new_file.path);
+				break;
+				
+			case GIT_STATUS_WT_DELETED:
+				CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_index_remove_bypath, index, entry->index_to_workdir->old_file.path);
+				break;
+				
+			case GIT_STATUS_CONFLICTED:
+				if (!fileFilter([NSString stringWithUTF8String:entry->index_to_workdir->new_file.path])) {
+					continue;
+				}
+				CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_index_add_bypath, index, entry->index_to_workdir->new_file.path);  // Resolve conflict
+				break;
+				
+			default:
+				XLOG_DEBUG_UNREACHABLE();
+				break;
+		}
+	}
+	CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_index_write, index);
+	success = YES;
+	
+cleanup:
+	git_status_list_free(list);
+	git_index_free(index);
+	return success;
+}
+
 @end
