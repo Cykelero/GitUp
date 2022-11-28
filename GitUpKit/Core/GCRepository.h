@@ -79,4 +79,6 @@ typedef NS_ENUM(NSUInteger, GCFileMode) {
 - (NSString*)pathForHookWithName:(NSString*)name;  // Returns nil if hook doesn't exist
 - (BOOL)runHookWithName:(NSString*)name arguments:(NSArray*)arguments standardInput:(NSString*)standardInput error:(NSError**)error;  // Silently ignores non-existing hooks
 #endif
+
+- (BOOL)addAllFilesToIndexIncludingIgnored:(NSError**)error filterBy:(BOOL (^)(NSString* path))fileFilter;
 @end
