@@ -149,6 +149,7 @@ let package = Package(
                     .define("SHA1DC_NO_STANDARD_INCLUDES", to: "1"),
                     .define("SHA1DC_CUSTOM_INCLUDE_SHA1_C", to: "\"common.h\""),
                     .define("SHA1DC_CUSTOM_INCLUDE_UBC_CHECK_C", to: "\"common.h\""),
+					.unsafeFlags(["-w"]),
                 ] + FeaturesExtractor.extraLibgit2CSettings(),
                 cxxSettings: nil,
                 swiftSettings: nil,
@@ -170,7 +171,9 @@ let package = Package(
                 sources: nil,
                 resources: nil,
                 publicHeadersPath: ".",
-                cSettings: [],
+                cSettings: [
+					.unsafeFlags(["-w"])
+				],
                 cxxSettings: nil,
                 swiftSettings: nil,
                 linkerSettings: []
@@ -198,7 +201,8 @@ let package = Package(
                 cSettings: [
                     .define("NTLM_STATIC", to: "1"),
                     .define("CRYPT_COMMONCRYPTO"),
-                    .define("UNICODE_ICONV", to: "1")
+                    .define("UNICODE_ICONV", to: "1"),
+					.unsafeFlags(["-w"])
                 ],
                 cxxSettings: nil,
                 swiftSettings: nil,
