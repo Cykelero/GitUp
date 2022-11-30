@@ -1115,7 +1115,6 @@
 					};
 					E267E1A71B84D6C500BAB377 = {
 						CreatedOnToolsVersion = 7.0;
-						DevelopmentTeam = 88W3E55T4B;
 					};
 					E2C338C319F8562F00063D95 = {
 						CreatedOnToolsVersion = 6.1;
@@ -1591,6 +1590,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				DEFINES_MODULE = YES;
+				DEVELOPMENT_TEAM = 6XWJB5YJ6J;
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
@@ -1615,6 +1615,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				DEFINES_MODULE = YES;
+				DEVELOPMENT_TEAM = 6XWJB5YJ6J;
 				DYLIB_COMPATIBILITY_VERSION = 1;
 				DYLIB_CURRENT_VERSION = 1;
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
