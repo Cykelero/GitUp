@@ -450,7 +450,6 @@ static const git_oid* _CommitParentCallback_Commit(size_t idx, void* payload) {
                              git_tree_id(tree),
                              parents ? _CommitParentCallback_Parents : _CommitParentCallback_Commit, parents ? (__bridge void*)parents : (void*)commit);
   CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_commit_lookup, &newCommit, self.private, &oid);
-  XLOG_DEBUG_CHECK(!git_oid_equal(git_commit_id(newCommit), git_commit_id(commit)));
 
 cleanup:
   git_signature_free(signature);
