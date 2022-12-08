@@ -742,6 +742,8 @@
 
 // Keep logic in sync with method above!
 - (BOOL)handleKeyDownEvent:(NSEvent*)event forSelectedDeltas:(NSArray*)deltas withConflicts:(NSDictionary*)conflicts allowOpen:(BOOL)allowOpen {
+	return NO;
+	
   if (deltas.count) {
     NSString* characters = event.charactersIgnoringModifiers;
     if ([characters rangeOfCharacterFromSet:[NSCharacterSet alphanumericCharacterSet] options:0].location != NSNotFound) {  // Skip if key event is for arrow keys, return key, etc...
