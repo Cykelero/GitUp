@@ -95,7 +95,7 @@ let package = Package(
                 path: libgit2OriginPath,
                 exclude: [
                     // ./
-                    "xcode",
+                    // "xcode",
                     "ci",
                     "cmake",
                     "deps",
