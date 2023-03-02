@@ -12,15 +12,15 @@
 #import <Foundation/Foundation.h>
 
 #define XLOG_DEBUG(...)                                                                                \
-  do {                                                                                                 \
+//  do {                                                                                                 \
     os_log_debug(OS_LOG_DEFAULT, "%{public}s", [[NSString stringWithFormat: __VA_ARGS__] UTF8String]); \
   } while (0)
 #define XLOG_VERBOSE(...)                                                                              \
-  do {                                                                                                 \
+//  do {                                                                                                 \
     os_log_debug(OS_LOG_DEFAULT, "%{public}s", [[NSString stringWithFormat: __VA_ARGS__] UTF8String]); \
   } while (0)
 #define XLOG_INFO(...)                                                                                 \
-  do {                                                                                                 \
+//  do {                                                                                                 \
     os_log_info(OS_LOG_DEFAULT, "%{public}s", [[NSString stringWithFormat: __VA_ARGS__] UTF8String]);  \
   } while (0)
 #define XLOG_WARNING(...)                                                                              \
