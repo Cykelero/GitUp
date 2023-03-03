@@ -371,6 +371,43 @@ static int _ReferenceForEachCallback(const char* refname, void* payload) {
 
 #endif
 
+/// Returns the paths of all files and directories in the working directory that are ignored. Doesn't return any child path of an existing ignored directory. Directory paths end with a trailing slash.
+- (NSArray*)readExistingIgnoredPaths:(NSError**)error {
+	BOOL success = NO;
+	NSMutableArray* result = [[NSMutableArray alloc] init];
+	
+	git_status_options options = GIT_STATUS_OPTIONS_INIT;
+	options.show = GIT_STATUS_SHOW_WORKDIR_ONLY;
+	options.flags = GIT_STATUS_OPT_RECURSE_UNTRACKED_DIRS | GIT_STATUS_OPT_INCLUDE_IGNORED;
+	
+	git_status_list* list = NULL;
+	CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_status_list_new, &list, self.private, &options);
+	
+	for (size_t i = 0, count = git_status_list_entrycount(list); i < count; ++i) {
+		const git_status_entry* entry = git_status_byindex(list, i);
+		
+		if (entry->status == GIT_STATUS_IGNORED) {
+			[result addObject:[NSString stringWithUTF8String:entry->index_to_workdir->new_file.path]];
+		}
+	}
+	success = YES;
+	
+cleanup:
+	git_status_list_free(list);
+	return success ? result : nil;
+}
+
+- (BOOL)addInternalIgnoreRules:(NSArray*)rules error:(NSError**)error {
+	NSString* ruleString = [[rules componentsJoinedByString:@"\n"] stringByAppendingString:@"\n"];
+	CALL_LIBGIT2_FUNCTION_RETURN(NO, git_ignore_add_rule, self.private, GCGitPathFromFileSystemPath(ruleString));
+	return YES;
+}
+
+- (BOOL)resetInternalIgnoreRules:(NSError**)error {
+	CALL_LIBGIT2_FUNCTION_RETURN(NO, git_ignore_clear_internal_rules, self.private);
+	return YES;
+}
+
 #if DEBUG
 
 - (GCDiff*)checkUnifiedStatus:(NSError**)error {
