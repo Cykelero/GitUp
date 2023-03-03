@@ -81,4 +81,11 @@ typedef NS_ENUM(NSUInteger, GCFileMode) {
 #endif
 
 - (BOOL)addAllFilesToIndexIncludingIgnored:(NSError**)error filterBy:(BOOL (^)(NSString* path))fileFilter;
+
+- (NSArray*)readExistingIgnoredPaths:(NSError**)error;
+
+- (BOOL)addInternalIgnoreRules:(NSArray*)rules error:(NSError**)error;
+
+- (BOOL)resetInternalIgnoreRules:(NSError**)error;
+
 @end
