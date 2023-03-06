@@ -245,6 +245,9 @@ cleanup:
   git_checkout_options checkoutOptions = GIT_CHECKOUT_OPTIONS_INIT;
   checkoutOptions.checkout_strategy = options & kGCCheckoutOption_Force ? GIT_CHECKOUT_FORCE : GIT_CHECKOUT_SAFE;
   checkoutOptions.checkout_strategy |= GIT_CHECKOUT_ALLOW_CONFLICTS;
+  if (options & kGCCheckoutOption_RemoveUntracked) {
+    checkoutOptions.checkout_strategy |= GIT_CHECKOUT_REMOVE_UNTRACKED;
+  }
   CALL_LIBGIT2_FUNCTION_RETURN(NO, git_checkout_index, self.private, index.private, &checkoutOptions);
   if (options & kGCCheckoutOption_UpdateSubmodulesRecursively) {
     return [self updateAllSubmodulesResursively:(options & kGCCheckoutOption_Force ? YES : NO) error:error];
