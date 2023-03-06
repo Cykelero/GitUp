@@ -341,7 +341,7 @@ void GIPerformOnMainRunLoop(dispatch_block_t block) {
 }
 
 - (NSUInteger)layoutManager:(NSLayoutManager*)layoutManager shouldGenerateGlyphs:(const CGGlyph*)glyphs properties:(const NSGlyphProperty*)props characterIndexes:(const NSUInteger*)charIndexes font:(NSFont*)aFont forGlyphRange:(NSRange)glyphRange {
-  XLOG_DEBUG_CHECK([aFont.fontName isEqualToString:@"Menlo-Regular"]);
+  //XLOG_DEBUG_CHECK([aFont.fontName isEqualToString:@"Menlo-Regular"]);
 
   if (layoutManager.showsInvisibleCharacters) {
     NSTextStorage* textStorage = layoutManager.textStorage;
