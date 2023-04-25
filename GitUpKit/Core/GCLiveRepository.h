@@ -78,6 +78,8 @@ extern NSString* const GCLiveRepositoryAmendOperationReason;
 
 - (void)notifyRepositoryChanged;  // Calling this method is required when manipulating the repository from this process as live-updates don't apply
 - (void)notifyWorkingDirectoryChanged;  // Calling this method is required when manipulating the working directory from this process as live-updates don't apply
+/// If the GCLiveRepository has noticed filesystem changes, and therefore set the `_updateTimer` to fire soon (which can trigger a history update, a status update, etc), then this method fires the timer immediately. Does nothing otherwise.
+- (void)flushUpdateTimer;
 
 + (GCHistorySorting)historySorting;  // Default is kGCHistorySorting_None
 @property(nonatomic, readonly) GCHistory* history;

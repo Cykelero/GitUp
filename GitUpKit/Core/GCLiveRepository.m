@@ -309,6 +309,15 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
   [self _notifyWorkingDirectoryChanged:YES gitDirectoryChanged:NO];
 }
 
+- (void)flushUpdateTimer {
+	CFAbsoluteTime updateTimerNextFireDate = CFRunLoopTimerGetNextFireDate(_updateTimer);
+	CFAbsoluteTime updateTimerScheduledThreshold = CFAbsoluteTimeGetCurrent() + kUpdateLatency + 1; // it's never scheduled farther in advance than kUpdateLatency
+	
+	if (updateTimerNextFireDate < updateTimerScheduledThreshold) {
+		[self _timer:_updateTimer];
+	}
+}
+
 #pragma mark - Diffs
 
 - (void)setDiffWhitespaceMode:(GCLiveRepositoryDiffWhitespaceMode)mode {
