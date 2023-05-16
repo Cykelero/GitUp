@@ -240,6 +240,46 @@ static inline BOOL _EqualConflicts(GCIndexConflict* conflict1, GCIndexConflict* 
   return index;
 }
 
+- (GCIndex*)createInMemoryCopyOfIndex:(GCIndex*)sourceIndex error:(NSError**)error {
+	GCIndex* result = [self createInMemoryIndex:error];
+	
+	if (!result) {
+		return nil;
+	}
+	
+	[sourceIndex enumerateFilesUsingBlock:^(NSString* path, GCFileMode mode, NSString* sha1, BOOL* stop) {
+		[self copyFile:path fromOtherIndex:sourceIndex toIndex:result error:error];
+	}];
+	
+	[sourceIndex enumerateConflictsUsingBlock:^(GCIndexConflict* conflict, BOOL* stop) {
+		[self copyConflict:conflict.path fromOtherIndex:sourceIndex toIndex:result error:error];
+	}];
+	
+	return result;
+}
+
+- (void)resetRepositoryIndexToIndex:(GCIndex*)sourceIndex error:(NSError**)error {
+	// Get and clear repository index
+	GCIndex* repositoryIndex = [self readRepositoryIndex:error];
+	[self clearIndex:repositoryIndex error:error];
+	
+	if (*error != nil || !repositoryIndex) {
+		return;
+	}
+	
+	// Copy all entries from source index
+	[sourceIndex enumerateFilesUsingBlock:^(NSString* path, GCFileMode mode, NSString* sha1, BOOL* stop) {
+		[self copyFile:path fromOtherIndex:sourceIndex toIndex:repositoryIndex error:error];
+	}];
+	
+	[sourceIndex enumerateConflictsUsingBlock:^(GCIndexConflict* conflict, BOOL* stop) {
+		[self copyConflict:conflict.path fromOtherIndex:sourceIndex toIndex:repositoryIndex error:error];
+	}];
+	
+	// Write repository index
+	[self writeRepositoryIndex:repositoryIndex error:error];
+}
+
 - (GCIndex*)readRepositoryIndex:(NSError**)error {
   git_index* index = [self reloadRepositoryIndex:error];
   return index ? [[GCIndex alloc] initWithRepository:self index:index] : nil;
