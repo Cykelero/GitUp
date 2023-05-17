@@ -86,6 +86,12 @@ extern NSString* const GCLiveRepositoryAmendOperationReason;
 @property(nonatomic, readonly, getter=areHistoryUpdatesSuspended) BOOL historyUpdatesSuspended;
 - (void)suspendHistoryUpdates;  // Nestable
 - (void)resumeHistoryUpdates;  // Nestable
+/// Reloads `workingDirectoryContent` and `existingIgnoredPaths` from disk. Automatically called when changes are performed by another process.
+- (void)updateWorkingDirectoryCache;
+/// Writes the working directory and updates the cache.
+///
+/// Calls `-checkoutIndex:withOptions:error:` with the `force` and `removeUntracked` options. Updates `workingDirectoryContent` with the provided index, and updates `existingIgnoredPaths`.
+- (BOOL)writeIndexToWorkingDirectoryUpdatingCache:(GCIndex*)index error:(NSError**)error;
 
 @property(nonatomic, getter=areSnapshotsEnabled) BOOL snapshotsEnabled;  // Default is NO - Should be enabled *after* setting delegate so any error can be received
 @property(nonatomic, getter=areAutomaticSnapshotsEnabled) BOOL automaticSnapshotsEnabled;  // Requires @snapshotsEnabled to be YES
@@ -97,6 +103,10 @@ extern NSString* const GCLiveRepositoryAmendOperationReason;
 @property(nonatomic, readonly) GCDiffOptions diffBaseOptions;  // For convenience
 
 @property(nonatomic) GCLiveRepositoryStatusMode statusMode;  // Default is kGCLiveRepositoryStatusMode_Disabled - Should be changed *after* setting delegate so any error can be received
+/// A cache of the current content of the working directory. Updated whenever an external process makes a change. Specific workdir-writing methods properly update this.
+@property(nonatomic, readonly) GCIndex* workingDirectoryContent;  // Nil on error
+/// A cache of the current ignored existing paths in the working directory. Updated whenever an external process makes a change. Specific workdir-writing methods properly update this.
+@property(nonatomic, readonly) NSArray* existingIgnoredPaths;  // Nil on error
 @property(nonatomic, readonly) GCDiff* unifiedStatus;  // Nil on error
 @property(nonatomic, readonly) GCDiff* workingDirectoryStatus;  // Nil on error
 @property(nonatomic, readonly) GCDiff* indexStatus;  // Nil on error
