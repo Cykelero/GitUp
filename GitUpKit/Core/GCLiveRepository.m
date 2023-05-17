@@ -207,6 +207,8 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
 
     _state = [super state];
 
+    [self updateWorkingDirectoryCache];
+
     CFAbsoluteTime time = CFAbsoluteTimeGetCurrent();
     _history = [self loadHistoryUsingSorting:[self.class historySorting] error:error];
     if (_history == nil) {
@@ -271,6 +273,8 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
 
 - (void)_notifyWorkingDirectoryChanged:(BOOL)workingDirectoryChanged gitDirectoryChanged:(BOOL)gitDirectoryChanged {
   if (workingDirectoryChanged) {
+		[self updateWorkingDirectoryCache];
+
     if (_statusMode != kGCLiveRepositoryStatusMode_Disabled) {
       [self _updateStatus:YES];
     }
@@ -482,6 +486,153 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
   }
 }
 
+- (void)updateWorkingDirectoryCache {
+	BOOL success = NO;
+	NSError* theError = nil;
+	NSError* __strong* error = &theError; // allows usage of CALL_LIBGIT2_FUNCTION_GOTO
+	
+	git_status_list* list = NULL;
+	
+	// Prepare output
+	// // Working directory content (using the repo index as a buffer)
+	// // TODO: We might be able to avoid writing to the repo's index by calling git_index_add instead of git_index_add_bypath: https://stackoverflow.com/a/57952919
+	GCIndex* workingDirectoryContent = nil;
+	
+	GCIndex* repositoryIndex = [self readRepositoryIndex:&theError];
+	GCIndex* initialRepositoryIndex = [self createInMemoryCopyOfIndex:repositoryIndex error:&theError];
+		
+	// // Existing ignored paths
+	NSMutableArray* existingIgnoredPaths = [[NSMutableArray alloc] init];
+	
+	// Create and iterate status list
+	if (repositoryIndex != nil && initialRepositoryIndex != nil) {
+		// Create status list
+		git_status_options options = GIT_STATUS_OPTIONS_INIT;
+		options.show = GIT_STATUS_SHOW_WORKDIR_ONLY;
+		options.flags = GIT_STATUS_OPT_INCLUDE_UNTRACKED | GIT_STATUS_OPT_RECURSE_UNTRACKED_DIRS | GIT_STATUS_OPT_INCLUDE_IGNORED;
+		
+		CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_status_list_new, &list, self.private, &options);
+		
+		// Iterate on status list to gather info
+		for (size_t i = 0, count = git_status_list_entrycount(list); i < count; ++i) {
+			const git_status_entry* entry = git_status_byindex(list, i);
+			const char* newFilePath;
+			
+			switch (entry->status) {
+				case GIT_STATUS_WT_NEW:
+				case GIT_STATUS_WT_MODIFIED:
+				case GIT_STATUS_WT_TYPECHANGE:
+					newFilePath = entry->index_to_workdir->new_file.path;
+					
+					// (Ignored) git folder?
+					if (newFilePath[strlen(newFilePath) - 1] == '/') {
+						// Add to ignored paths, don't add to index
+						[existingIgnoredPaths addObject:[NSString stringWithUTF8String:newFilePath]];
+						continue;
+					}
+					
+					// Add to index
+					CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_index_add_bypath, repositoryIndex.private, newFilePath);
+					break;
+					
+				case GIT_STATUS_IGNORED:
+					newFilePath = entry->index_to_workdir->new_file.path;
+					
+					// Add to ignored paths
+					[existingIgnoredPaths addObject:[NSString stringWithUTF8String:newFilePath]];
+					break;
+					
+				case GIT_STATUS_WT_DELETED:
+					CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_index_remove_bypath, repositoryIndex.private, entry->index_to_workdir->old_file.path);
+					break;
+					
+				case GIT_STATUS_CONFLICTED:
+					newFilePath = entry->index_to_workdir->new_file.path;
+					
+					// Add to index (replace conflict with concrete file from workdir)
+					// Equivalent to a regular CALL_LIBGIT2_FUNCTION_GOTO call, except doesn't error if the file doesn't exist
+					int addByPathReturn = git_index_add_bypath(repositoryIndex.private, newFilePath);
+					CHECK_LIBGIT2_FUNCTION_CALL(goto cleanup, addByPathReturn, == GIT_OK || addByPathReturn == GIT_ENOTFOUND);
+					
+					if (addByPathReturn == GIT_ENOTFOUND) {
+						// But, if the file doesn't exist, we do need to remove it from the index
+						[self removeEntry:[NSString stringWithUTF8String:newFilePath] fromIndex:repositoryIndex failIfMissing:true error:&theError];
+					}
+					break;
+					
+				default:
+					XLOG_DEBUG_UNREACHABLE();
+					break;
+			}
+		}
+		
+		// Create in-memory index from repository index
+		workingDirectoryContent = [self createInMemoryCopyOfIndex:repositoryIndex error:&theError];
+		
+		// Restore repository index
+		[self resetRepositoryIndexToIndex:initialRepositoryIndex error:&theError];
+		
+		// Final error check
+		if (theError != nil) {
+			goto cleanup;
+		}
+		
+		success = YES;
+	}
+	
+	// Finish up
+cleanup:
+	git_status_list_free(list);
+	
+	if (success) {
+		_workingDirectoryContent = workingDirectoryContent;
+		_existingIgnoredPaths = existingIgnoredPaths;
+	} else {
+		_workingDirectoryContent = NULL;
+		_existingIgnoredPaths = NULL;
+	}
+}
+
+- (BOOL)writeIndexToWorkingDirectoryUpdatingCache:(GCIndex*)index error:(NSError**)error {
+	// Write index to working directory
+	GCCheckoutOptions options = kGCCheckoutOption_Force | kGCCheckoutOption_RemoveUntracked;
+	if (![self checkoutIndex:index withOptions:options error:error]) {
+		return NO;
+	}
+	
+	// Update working directory cache
+	// Creates a copy of the provided index, but with materialized conflicts
+	GCIndex* processedIndex = [self createInMemoryCopyOfIndex:index error:error];
+	if (*error != nil) {
+		_workingDirectoryContent = nil;
+		return NO;
+	}
+	
+	[index enumerateConflictsUsingBlock:^(GCIndexConflict* conflict, BOOL* stop) {
+		[self removeEntry:conflict.path fromIndex:processedIndex failIfMissing:true error:error];
+		[self addFileInWorkingDirectory:conflict.path toIndex:processedIndex error:error];
+	}];
+	
+	if (*error != nil) {
+		_workingDirectoryContent = nil;
+		return NO;
+	}
+	
+	_workingDirectoryContent = processedIndex;
+	
+	// Update ignored paths cache
+	NSArray* existingIgnoredPaths = [self readExistingIgnoredPaths:error];
+	
+	if (*error != nil) {
+		_existingIgnoredPaths = nil;
+		return NO;
+	}
+	
+	_existingIgnoredPaths = existingIgnoredPaths;
+	
+	return YES;
+}
+
 #pragma mark - Snapshots
 
 - (void)_writeSnapshots {
@@ -643,11 +794,17 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
 
   CFAbsoluteTime time = CFAbsoluteTimeGetCurrent();
   if (_statusMode == kGCLiveRepositoryStatusMode_Unified) {
-    unifiedDiff = [self diffWorkingDirectoryWithHEAD:nil
-                                             options:(self.diffBaseOptions | kGCDiffOption_IncludeUntracked | kGCDiffOption_FindRenames)
-                                   maxInterHunkLines:_diffMaxInterHunkLines
-                                     maxContextLines:_diffMaxContextLines
-                                               error:&error];
+    GCCommit* headCommit;
+    if ([self lookupHEADCurrentCommit:&headCommit branch:NULL error:&error]) {
+      unifiedDiff = [self diffIndex:_workingDirectoryContent
+                         withCommit:headCommit
+                        filePattern:nil
+                            options:(self.diffBaseOptions | kGCDiffOption_IncludeUntracked | kGCDiffOption_FindRenames)
+                  maxInterHunkLines:_diffMaxInterHunkLines
+                    maxContextLines:_diffMaxContextLines
+                              error:&error];
+    }
+
     if (!unifiedDiff) {
       success = NO;
     }
@@ -659,11 +816,16 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
                                   maxContextLines:_diffMaxContextLines
                                             error:&error];
     if (indexDiff) {
-      workdirDiff = [self diffWorkingDirectoryWithRepositoryIndex:nil
-                                                          options:(self.diffBaseOptions | kGCDiffOption_IncludeUntracked)
-                                                maxInterHunkLines:_diffMaxInterHunkLines
-                                                  maxContextLines:_diffMaxContextLines
-                                                            error:&error];
+      GCIndex* repositoryIndex = [self readRepositoryIndex:&error];
+      if (repositoryIndex != nil) {
+        workdirDiff = [self diffIndex:_workingDirectoryContent
+                            withIndex:repositoryIndex
+                          filePattern:nil
+                              options:(self.diffBaseOptions | kGCDiffOption_IncludeUntracked)
+                    maxInterHunkLines:_diffMaxInterHunkLines
+                      maxContextLines:_diffMaxContextLines
+                                error:&error];
+      }
     }
     if (!indexDiff || !workdirDiff) {
       success = NO;
