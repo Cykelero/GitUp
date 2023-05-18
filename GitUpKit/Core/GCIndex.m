@@ -258,13 +258,13 @@ static inline BOOL _EqualConflicts(GCIndexConflict* conflict1, GCIndexConflict* 
 	return result;
 }
 
-- (void)resetRepositoryIndexToIndex:(GCIndex*)sourceIndex error:(NSError**)error {
+- (BOOL)resetRepositoryIndexToIndex:(GCIndex*)sourceIndex error:(NSError**)error {
 	// Get and clear repository index
 	GCIndex* repositoryIndex = [self readRepositoryIndex:error];
 	[self clearIndex:repositoryIndex error:error];
 	
 	if (*error != nil || !repositoryIndex) {
-		return;
+		return NO;
 	}
 	
 	// Copy all entries from source index
@@ -278,6 +278,8 @@ static inline BOOL _EqualConflicts(GCIndexConflict* conflict1, GCIndexConflict* 
 	
 	// Write repository index
 	[self writeRepositoryIndex:repositoryIndex error:error];
+	
+	return *error == nil ? YES : NO;
 }
 
 - (GCIndex*)readRepositoryIndex:(NSError**)error {

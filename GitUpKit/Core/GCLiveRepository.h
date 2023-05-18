@@ -90,8 +90,8 @@ extern NSString* const GCLiveRepositoryAmendOperationReason;
 - (void)updateWorkingDirectoryCache;
 /// Writes the working directory and updates the cache.
 ///
-/// Calls `-checkoutIndex:withOptions:error:` with the `force` and `removeUntracked` options. Updates `workingDirectoryContent` with the provided index, and updates `existingIgnoredPaths`.
-- (BOOL)writeIndexToWorkingDirectoryUpdatingCache:(GCIndex*)index error:(NSError**)error;
+/// Overwrites the working directory and index with the provided values. Updates `workingDirectoryContent` and `existingIgnoredPaths`.
+- (BOOL)updatingCacheWriteWorkingDirectory:(GCIndex*)newWorkingDirectoryIndex stage: (GCIndex*)newStageIndex error:(NSError**)error;
 
 @property(nonatomic, getter=areSnapshotsEnabled) BOOL snapshotsEnabled;  // Default is NO - Should be enabled *after* setting delegate so any error can be received
 @property(nonatomic, getter=areAutomaticSnapshotsEnabled) BOOL automaticSnapshotsEnabled;  // Requires @snapshotsEnabled to be YES

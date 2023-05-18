@@ -593,22 +593,27 @@ cleanup:
 	}
 }
 
-- (BOOL)writeIndexToWorkingDirectoryUpdatingCache:(GCIndex*)index error:(NSError**)error {
-	// Write index to working directory
+- (BOOL)updatingCacheWriteWorkingDirectory:(GCIndex*)newWorkingDirectoryIndex stage: (GCIndex*)newStageIndex error:(NSError**)error {
+	// Write working directory
 	GCCheckoutOptions options = kGCCheckoutOption_Force | kGCCheckoutOption_RemoveUntracked;
-	if (![self checkoutIndex:index withOptions:options error:error]) {
+	if (![self checkoutIndex:newWorkingDirectoryIndex withOptions:options error:error]) {
+		return NO;
+	}
+	
+	// Write index
+	if (![self resetRepositoryIndexToIndex:newStageIndex error:error]) {
 		return NO;
 	}
 	
 	// Update working directory cache
 	// Creates a copy of the provided index, but with materialized conflicts
-	GCIndex* processedIndex = [self createInMemoryCopyOfIndex:index error:error];
+	GCIndex* processedIndex = [self createInMemoryCopyOfIndex:newWorkingDirectoryIndex error:error];
 	if (*error != nil) {
 		_workingDirectoryContent = nil;
 		return NO;
 	}
 	
-	[index enumerateConflictsUsingBlock:^(GCIndexConflict* conflict, BOOL* stop) {
+	[newWorkingDirectoryIndex enumerateConflictsUsingBlock:^(GCIndexConflict* conflict, BOOL* stop) {
 		[self removeEntry:conflict.path fromIndex:processedIndex failIfMissing:true error:error];
 		[self addFileInWorkingDirectory:conflict.path toIndex:processedIndex error:error];
 	}];
