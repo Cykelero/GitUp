@@ -30,6 +30,14 @@ typedef NS_ENUM(NSUInteger, GCLiveRepositoryDiffWhitespaceMode) {
   kGCLiveRepositoryDiffWhitespaceMode_IgnoreAll
 };
 
+// I'm not confident in my ability to properly memory-manage out arguments, so I'm returning the result through a completion block instead
+typedef void (^GCDiffIndexesBlock)(
+																	 GCIndex* from,
+																	 GCIndex* to,
+																	 NSArray<NSString*>** outModifiedPaths,
+																	 NSArray<NSString*>** outDeletedPaths
+																	 );
+
 extern NSString* const GCLiveRepositoryDidChangeNotification;
 extern NSString* const GCLiveRepositoryWorkingDirectoryDidChangeNotification;
 
@@ -91,7 +99,10 @@ extern NSString* const GCLiveRepositoryAmendOperationReason;
 /// Writes the working directory and updates the cache.
 ///
 /// Overwrites the working directory and index with the provided values. Updates `workingDirectoryContent` and `existingIgnoredPaths`.
-- (BOOL)updatingCacheWriteWorkingDirectory:(GCIndex*)newWorkingDirectoryIndex stage: (GCIndex*)newStageIndex error:(NSError**)error;
+- (BOOL)updatingCacheWriteWorkingDirectory:(GCIndex*)newWorkingDirectoryIndex
+																		 stage:(GCIndex*)newStageIndex
+																		 error:(NSError**)error
+													diffIndexesBlock:(GCDiffIndexesBlock)diffIndexesBlock;
 
 @property(nonatomic, getter=areSnapshotsEnabled) BOOL snapshotsEnabled;  // Default is NO - Should be enabled *after* setting delegate so any error can be received
 @property(nonatomic, getter=areAutomaticSnapshotsEnabled) BOOL automaticSnapshotsEnabled;  // Requires @snapshotsEnabled to be YES

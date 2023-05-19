@@ -593,8 +593,13 @@ cleanup:
 	}
 }
 
-- (BOOL)updatingCacheWriteWorkingDirectory:(GCIndex*)newWorkingDirectoryIndex stage: (GCIndex*)newStageIndex error:(NSError**)error {
-	// Write working directory
+
+- (BOOL)updatingCacheWriteWorkingDirectory:(GCIndex*)newWorkingDirectoryIndex
+																		 stage:(GCIndex*)newStageIndex
+																		 error:(NSError**)error
+													diffIndexesBlock:(GCDiffIndexesBlock)diffIndexesBlock
+{
+  // Write working directory
 	GCCheckoutOptions options = kGCCheckoutOption_Force | kGCCheckoutOption_RemoveUntracked;
 	if (![self checkoutIndex:newWorkingDirectoryIndex withOptions:options error:error]) {
 		return NO;
@@ -605,35 +610,67 @@ cleanup:
 		return NO;
 	}
 	
-	// Update working directory cache
-	// Creates a copy of the provided index, but with materialized conflicts
-	GCIndex* processedIndex = [self createInMemoryCopyOfIndex:newWorkingDirectoryIndex error:error];
-	if (*error != nil) {
-		_workingDirectoryContent = nil;
-		return NO;
+	// Update cache
+	__block NSArray<NSString*>* modifiedPaths;
+	__block NSArray<NSString*>* deletedPaths;
+	
+	// // Get index diff (implementing in Objective-C would be too much work for me)
+	diffIndexesBlock(
+		_workingDirectoryContent,
+		newWorkingDirectoryIndex,
+		&modifiedPaths,
+		&deletedPaths
+	);
+	
+	// // Did any .gitignore file change?
+	BOOL someGitignoreFileChanged = false;
+	
+	for (NSString* path in [modifiedPaths arrayByAddingObjectsFromArray:deletedPaths]) {
+		if ([[path lastPathComponent] isEqualToString:@".gitignore"]) {
+			someGitignoreFileChanged = true;
+			break;
+		}
 	}
 	
-	[newWorkingDirectoryIndex enumerateConflictsUsingBlock:^(GCIndexConflict* conflict, BOOL* stop) {
-		[self removeEntry:conflict.path fromIndex:processedIndex failIfMissing:true error:error];
-		[self addFileInWorkingDirectory:conflict.path toIndex:processedIndex error:error];
-	}];
-	
-	if (*error != nil) {
-		_workingDirectoryContent = nil;
-		return NO;
+	// // Update cache accordingly
+	if (someGitignoreFileChanged) {
+		// Reload the whole cache
+		[self updateWorkingDirectoryCache];
+		
+		// This is the slow, simple way.
+		// To do this better:
+		// - For the workdir cache: set the cache to a materialized version of the workdir index we just wrote—like is done below, in the “no .gitignore change” path—but then to iterate on all new files, and remove them if their path is ignored (using git_ignore_path_is_ignored or similar).
+		// - For the ignored paths cache: I think I'd have to iterate over every single known file (present in either current workdir cache, or in new workdir index, or in current ignored paths cache) and check its ignored status with libgit2, and add/remove it from the ignored paths list accordingly.
+	} else {
+		// Update working directory cache
+		// Creates a copy of the provided index, but with materialized conflicts
+		GCIndex* processedIndex = [self createInMemoryCopyOfIndex:newWorkingDirectoryIndex error:error];
+		if (*error != nil) {
+			_workingDirectoryContent = nil;
+			return NO;
+		}
+		
+		[newWorkingDirectoryIndex enumerateConflictsUsingBlock:^(GCIndexConflict* conflict, BOOL* stop) {
+			[self removeEntry:conflict.path fromIndex:processedIndex failIfMissing:true error:error];
+			[self addFileInWorkingDirectory:conflict.path toIndex:processedIndex error:error];
+		}];
+		
+		if (*error != nil) {
+			_workingDirectoryContent = nil;
+			return NO;
+		}
+		
+		_workingDirectoryContent = processedIndex;
+		
+		// Don't do anything to ignored paths cache
+		// Due to the way these are used in Retcon, updating the cache is not necessary here. It could result in paths for now-deleted files being still present, but that won't cause issues.
+		
+		// If we want to implement this properly someday, we'd need to:
+		// - Copy the current list.
+		// - Diff the new workdir index from the currently cached working directory contents.
+		// - For each removed file, remove its path in the list, if it's there.
+		// - For each added file, check with libgit2 (git_ignore_path_is_ignored or similar) if it's ignored. If so, add it to the list (if it's not there already).
 	}
-	
-	_workingDirectoryContent = processedIndex;
-	
-	// Update ignored paths cache
-	NSArray* existingIgnoredPaths = [self readExistingIgnoredPaths:error];
-	
-	if (*error != nil) {
-		_existingIgnoredPaths = nil;
-		return NO;
-	}
-	
-	_existingIgnoredPaths = existingIgnoredPaths;
 	
 	return YES;
 }
