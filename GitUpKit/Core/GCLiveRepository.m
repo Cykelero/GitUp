@@ -992,7 +992,7 @@ cleanup:
         }
       }
     }
-    [self notifyRepositoryChanged];
+    [self _notifyWorkingDirectoryChanged:YES gitDirectoryChanged:YES];
   }
 
   if (!success) {  // In case of error, put a dummy operation on the undo stack since we *must* put something, but pop it at the next runloop iteration
