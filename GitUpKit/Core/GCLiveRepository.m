@@ -597,12 +597,35 @@ cleanup:
 - (BOOL)updatingCacheWriteWorkingDirectory:(GCIndex*)newWorkingDirectoryIndex
 																		 stage:(GCIndex*)newStageIndex
 																		 error:(NSError**)error
-													diffIndexesBlock:(GCDiffIndexesBlock)diffIndexesBlock
-{
+													diffIndexesBlock:(GCDiffIndexesBlock)diffIndexesBlock {
+	// Get index diff (implementing this in Objective-C would be too much for me)
+	NSArray<NSString*>* modifiedPaths;
+	NSArray<NSString*>* deletedPaths;
+	
+	diffIndexesBlock(
+		_workingDirectoryContent,
+		newWorkingDirectoryIndex,
+		&modifiedPaths,
+		&deletedPaths
+	);
+	
   // Write working directory
-	GCCheckoutOptions options = kGCCheckoutOption_Force | kGCCheckoutOption_RemoveUntracked;
-	if (![self checkoutIndex:newWorkingDirectoryIndex withOptions:options error:error]) {
+	// // Write modified
+	if (![self checkoutFilesToWorkingDirectory:modifiedPaths fromIndex:newWorkingDirectoryIndex error:error]) {
 		return NO;
+	}
+	
+	// // Delete deleted
+	for (NSString* deletedPath in deletedPaths) {
+		#if DEBUG
+			int fileIsIgnored;
+			CALL_LIBGIT2_FUNCTION_RETURN(NO, git_ignore_path_is_ignored, &fileIsIgnored, self.private, GCGitPathFromFileSystemPath(deletedPath));
+			NSAssert(!fileIsIgnored, @"Tried deleting ignored file “%@”", deletedPath);
+		#endif
+		
+		if (![[NSFileManager defaultManager] removeItemAtPath:[self absolutePathForFile:deletedPath] error:error]) {
+			return NO;
+		}
 	}
 	
 	// Write index
@@ -611,18 +634,6 @@ cleanup:
 	}
 	
 	// Update cache
-	__block NSArray<NSString*>* modifiedPaths;
-	__block NSArray<NSString*>* deletedPaths;
-	
-	// // Get index diff (implementing in Objective-C would be too much work for me)
-	diffIndexesBlock(
-		_workingDirectoryContent,
-		newWorkingDirectoryIndex,
-		&modifiedPaths,
-		&deletedPaths
-	);
-	
-	// // Did any .gitignore file change?
 	BOOL someGitignoreFileChanged = false;
 	
 	for (NSString* path in [modifiedPaths arrayByAddingObjectsFromArray:deletedPaths]) {
