@@ -726,7 +726,10 @@ cleanup:
 }
 
 - (BOOL)_saveSnapshot:(GCSnapshot*)snapshot withReason:(NSString*)reason argument:(id<NSCoding>)argument {
-  if ([_snapshots.firstObject isEqualToSnapshot:snapshot usingOptions:(kGCSnapshotOption_IncludeLocalBranches | kGCSnapshotOption_IncludeTags)]) {
+  if (
+			![reason isEqualToString:@"retcon_write"] // if Retcon explicitely asks, always save snapshot
+			&& [_snapshots.firstObject isEqualToSnapshot:snapshot usingOptions:(kGCSnapshotOption_IncludeLocalBranches | kGCSnapshotOption_IncludeTags)]
+			) {
     return NO;
   }
   snapshot[kSnapshotKey_Date] = [NSDate date];
