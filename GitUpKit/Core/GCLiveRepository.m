@@ -611,8 +611,10 @@ cleanup:
 	
   // Write working directory
 	// // Write modified
-	if (![self checkoutFilesToWorkingDirectory:modifiedPaths fromIndex:newWorkingDirectoryIndex error:error]) {
-		return NO;
+	for (NSString* modifiedPath in modifiedPaths) {
+		if (![self checkoutFilesToWorkingDirectory:@[ modifiedPath ] fromIndex:newWorkingDirectoryIndex error:error]) {
+			return NO;
+		}
 	}
 	
 	// // Delete deleted
