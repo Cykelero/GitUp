@@ -612,6 +612,12 @@ cleanup:
   // Write working directory
 	// // Write modified
 	for (NSString* modifiedPath in modifiedPaths) {
+#if DEBUG
+		int fileIsIgnored;
+		CALL_LIBGIT2_FUNCTION_RETURN(NO, git_ignore_path_is_ignored, &fileIsIgnored, self.private, GCGitPathFromFileSystemPath(modifiedPath));
+		NSAssert(!fileIsIgnored, @"The code isn't ready to handle this case: modifying/creating ignored file “%@”. The file will be in the workdir cache, but shouldn't be; and might not be in the existing ignored paths cache.", modifiedPath);
+#endif
+		
 		if (![self checkoutFilesToWorkingDirectory:@[ modifiedPath ] fromIndex:newWorkingDirectoryIndex error:error]) {
 			return NO;
 		}
@@ -619,11 +625,11 @@ cleanup:
 	
 	// // Delete deleted
 	for (NSString* deletedPath in deletedPaths) {
-		#if DEBUG
-			int fileIsIgnored;
-			CALL_LIBGIT2_FUNCTION_RETURN(NO, git_ignore_path_is_ignored, &fileIsIgnored, self.private, GCGitPathFromFileSystemPath(deletedPath));
-			NSAssert(!fileIsIgnored, @"Tried deleting ignored file “%@”", deletedPath);
-		#endif
+#if DEBUG
+		int fileIsIgnored;
+		CALL_LIBGIT2_FUNCTION_RETURN(NO, git_ignore_path_is_ignored, &fileIsIgnored, self.private, GCGitPathFromFileSystemPath(deletedPath));
+		NSAssert(!fileIsIgnored, @"Something's wrong: deleting ignored file “%@”", deletedPath);
+#endif
 		
 		if (![[NSFileManager defaultManager] removeItemAtPath:[self absolutePathForFile:deletedPath] error:error]) {
 			return NO;
