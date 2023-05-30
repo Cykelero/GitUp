@@ -493,6 +493,8 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
 	
 	git_status_list* list = NULL;
 	
+	CFAbsoluteTime startTime = CFAbsoluteTimeGetCurrent();
+	
 	// Prepare output
 	// // Working directory content (using the repo index as a buffer)
 	// // TODO: We might be able to avoid writing to the repo's index by calling git_index_add instead of git_index_add_bypath: https://stackoverflow.com/a/57952919
@@ -587,6 +589,11 @@ cleanup:
 	if (success) {
 		_workingDirectoryContent = workingDirectoryContent;
 		_existingIgnoredPaths = existingIgnoredPaths;
+		
+		if ([self.delegate respondsToSelector:@selector(repository:didUpdateWorkingDirectoryCacheInSeconds:)]) {
+			CFAbsoluteTime elapsedSeconds = CFAbsoluteTimeGetCurrent() - startTime;
+			[self.delegate repository:self didUpdateWorkingDirectoryCacheInSeconds:elapsedSeconds];
+		}
 	} else {
 		_workingDirectoryContent = NULL;
 		_existingIgnoredPaths = NULL;

@@ -73,6 +73,8 @@ extern NSString* const GCLiveRepositoryAmendOperationReason;
 - (void)repositoryDidUpdateSearch:(GCLiveRepository*)repository;
 - (void)repository:(GCLiveRepository*)repository searchUpdateDidFailWithError:(NSError*)error;
 
+- (void)repository:(GCLiveRepository*)repository didUpdateWorkingDirectoryCacheInSeconds:(double)seconds;
+
 - (void)repositoryBackgroundOperationInProgressDidChange:(GCLiveRepository*)repository;
 
 - (void)repository:(GCLiveRepository*)repository undoOperationDidFailWithError:(NSError*)error;
