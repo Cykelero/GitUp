@@ -43,6 +43,8 @@ typedef BOOL (^GCIndexLineFilter)(GCLineDiffChange change, NSUInteger oldLineNum
 @property(nonatomic, readonly, getter=isInMemory) BOOL inMemory;
 @property(nonatomic, readonly, getter=isEmpty) BOOL empty;
 @property(nonatomic, readonly) BOOL hasConflicts;
+/// If conflicts are present, doesn't match the file count.
+@property(nonatomic, readonly) NSInteger entryCount;
 - (NSString*)SHA1ForFile:(NSString*)path mode:(GCFileMode*)mode;  // Returns nil if file is not in index
 - (void)enumerateFilesUsingBlock:(void (^)(NSString* path, GCFileMode mode, NSString* sha1, BOOL* stop))block;
 - (void)enumerateConflictsUsingBlock:(void (^)(GCIndexConflict* conflict, BOOL* stop))block;
