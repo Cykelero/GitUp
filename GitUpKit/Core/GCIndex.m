@@ -186,6 +186,10 @@ static inline BOOL _EqualConflicts(GCIndexConflict* conflict1, GCIndexConflict* 
   return git_index_has_conflicts(_private) ? YES : NO;
 }
 
+- (NSInteger)entryCount {
+	return git_index_entrycount(_private);
+}
+
 - (void)enumerateConflictsUsingBlock:(void (^)(GCIndexConflict* conflict, BOOL* stop))block {
   git_index_conflict_iterator* iterator;
   int status = git_index_conflict_iterator_new(&iterator, _private);  // This cannot fail in practice
