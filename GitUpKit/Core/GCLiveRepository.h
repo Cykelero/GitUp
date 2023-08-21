@@ -117,6 +117,7 @@ extern NSString* const GCLiveRepositoryAmendOperationReason;
 
 @property(nonatomic) GCLiveRepositoryStatusMode statusMode;  // Default is kGCLiveRepositoryStatusMode_Disabled - Should be changed *after* setting delegate so any error can be received
 /// A cache of the current content of the working directory. Updated whenever an external process makes a change. Specific workdir-writing methods properly update this.
+@property(nonatomic, readonly) NSError* workingDirectoryContentUpdateError;  // Nil on error
 @property(nonatomic, readonly) GCIndex* workingDirectoryContent;  // Nil on error
 /// A cache of the current ignored existing paths in the working directory. Updated whenever an external process makes a change. Specific workdir-writing methods properly update this.
 @property(nonatomic, readonly) NSArray* existingIgnoredPaths;  // Nil on error

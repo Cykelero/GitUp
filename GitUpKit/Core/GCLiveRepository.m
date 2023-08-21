@@ -589,6 +589,7 @@ cleanup:
 	if (success) {
 		_workingDirectoryContent = workingDirectoryContent;
 		_existingIgnoredPaths = existingIgnoredPaths;
+		_workingDirectoryContentUpdateError = nil;
 		
 		if ([self.delegate respondsToSelector:@selector(repository:didUpdateWorkingDirectoryCacheInSeconds:)]) {
 			CFAbsoluteTime elapsedSeconds = CFAbsoluteTimeGetCurrent() - startTime;
@@ -597,6 +598,7 @@ cleanup:
 	} else {
 		_workingDirectoryContent = NULL;
 		_existingIgnoredPaths = NULL;
+		_workingDirectoryContentUpdateError = theError;
 	}
 }
 
