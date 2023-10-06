@@ -1064,6 +1064,7 @@
 			buildConfigurationList = E267E1B41B84D6C500BAB377 /* Build configuration list for PBXNativeTarget "GitUpKit (macOS)" */;
 			buildPhases = (
 				E267E1A31B84D6C500BAB377 /* Sources */,
+				A7FC97922AD032EE00943673 /* Delete some dependency signatures */,
 				E267E1A41B84D6C500BAB377 /* Frameworks */,
 				E267E1A51B84D6C500BAB377 /* Headers */,
 				E267E1A61B84D6C500BAB377 /* Resources */,
@@ -1175,6 +1176,25 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		A7FC97922AD032EE00943673 /* Delete some dependency signatures */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Delete some dependency signatures";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Works around an Xcode 15 bug where using a non-standard configuration (“Beta” in Retcon) causes two signature files to be created for the same library, which Xcode doesn't like.\n# Of note, I'm actually deleting both signatures, here. This feels like the wrong approach but it works—maybe because these libraries are *not* signed, if I understand correctly.\n# Based on https://developer.apple.com/forums/thread/733461?answerId=761385022#761385022\n\nrm -f \"$BUILD_DIR/Beta/libssl.xcframework-macos.signature\"\nrm -f \"$BUILD_DIR/Release/libssl.xcframework-macos.signature\"\n\nrm -f \"$BUILD_DIR/Beta/libcrypto.xcframework-macos.signature\"\nrm -f \"$BUILD_DIR/Release/libcrypto.xcframework-macos.signature\"\n\nrm -f \"$BUILD_DIR/Beta/libssh2.xcframework-macos.signature\"\nrm -f \"$BUILD_DIR/Release/libssh2.xcframework-macos.signature\"\n";
+		};
 		E21753361B9161FE00BE234A /* Set 'GitSHA1' Key in Info.plist */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
