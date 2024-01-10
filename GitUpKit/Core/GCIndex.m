@@ -380,10 +380,9 @@ cleanup:
     entryPtr = &entry;
   } else {
     // Null out the entry's modification date: otherwise git might assume the file is unchanged from the on-disk version, and produce incorrect diffs
-    git_index_entry copyEntry;
-    bcopy(entryPtr, &copyEntry, sizeof(git_index_entry));
-    copyEntry.mtime = (git_index_time) { .seconds = 0, .nanoseconds = 0};
-    entryPtr = &copyEntry;
+    bcopy(entryPtr, &entry, sizeof(git_index_entry));
+    entry.mtime = (git_index_time) { .seconds = 0, .nanoseconds = 0};
+    entryPtr = &entry;
   }
   NSMutableData* data = [[NSMutableData alloc] initWithCapacity:(1024 * 1024)];
 
@@ -487,10 +486,9 @@ cleanup:
     git_tree_entry_free(treeEntry);
   } else {
     // Null out the entry's modification date: otherwise git might assume the file is unchanged from the on-disk version, and produce incorrect diffs
-    git_index_entry copyEntry;
-    bcopy(entryPtr, &copyEntry, sizeof(git_index_entry));
-    copyEntry.mtime = (git_index_time) { .seconds = 0, .nanoseconds = 0};
-    entryPtr = &copyEntry;
+    bcopy(entryPtr, &entry, sizeof(git_index_entry));
+    entry.mtime = (git_index_time) { .seconds = 0, .nanoseconds = 0};
+    entryPtr = &entry;
   }
   NSMutableData* data = [[NSMutableData alloc] initWithCapacity:(1024 * 1024)];
 
