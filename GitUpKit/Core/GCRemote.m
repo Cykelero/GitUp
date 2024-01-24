@@ -439,6 +439,47 @@ cleanup:
   return success;
 }
 
+- (BOOL)pushTipCommit:(GCCommit*)tipCommit toRemoteBranch:(GCRemoteBranch*)remoteBranch force:(BOOL)force error:(NSError**)error {
+  // Generate temporary ref for pathspec source name
+  // libgit2 doesn't support passing a sha1 (unlike the git cli), so we create a temporary, hopefully invisible ref to pass to it.
+  NSString* sourceSHA1 = tipCommit.SHA1;
+  NSString* tempRefParentRelativePath = @"refs/retcon/temp";
+  NSString* tempRefRelativePath = [tempRefParentRelativePath stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+  
+  const char* sourceName = [tempRefRelativePath cStringUsingEncoding:NSASCIIStringEncoding];
+  
+  // // Create folder (should only happen once)
+  NSString* tempRefFolderAbsolutePath = [self.repositoryPath stringByAppendingPathComponent:tempRefParentRelativePath];
+  if (![[NSFileManager defaultManager] createDirectoryAtPath:tempRefFolderAbsolutePath withIntermediateDirectories:true attributes:nil error:error]) {
+    return NO;
+  }
+  
+  // // Create ref
+  NSString* tempRefAbsolutePath = [self.repositoryPath stringByAppendingPathComponent:tempRefRelativePath];
+  if (![[NSFileManager defaultManager] createFileAtPath:tempRefAbsolutePath contents:[sourceSHA1 dataUsingEncoding:NSUTF8StringEncoding] attributes:nil]) {
+    return NO;
+  }
+  
+  // Get destination remote, and destination branch pathspec-compatible name
+  // When pushing, you need to specify the branch name in `refs/heads/main` format, not `refs/remotes/origin/main` format
+  NSString* destinationName;
+  GCRemote* destinationRemote = [self lookupRemoteForRemoteBranch:remoteBranch sourceBranchName:&destinationName error:error];
+  if (destinationRemote == nil) {
+    return NO;
+  }
+  destinationName = [@"refs/heads/" stringByAppendingString:destinationName];
+  
+  // Perform push
+  if (![self _pushSourceReference:sourceName toRemote:destinationRemote.private destinationReference:[destinationName cStringUsingEncoding:NSASCIIStringEncoding] force:force error:error]) {
+    return NO;
+  }
+  
+  // Clean up temporary ref
+  [[NSFileManager defaultManager] removeItemAtPath:tempRefAbsolutePath error:nil];
+  
+  return YES;
+}
+
 - (BOOL)pushLocalBranchToUpstream:(GCLocalBranch*)branch force:(BOOL)force usedRemote:(GCRemote**)usedRemote error:(NSError**)error {
   BOOL success = NO;
   const char* name = git_reference_name(branch.private);
