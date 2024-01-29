@@ -27,6 +27,9 @@
 
 #import "GCPrivate.h"
 
+// SPIs from libgit2
+extern int git_reference__is_branch(const char* ref_name);
+
 #if !TARGET_OS_IPHONE
 static const char* _GitLFSPath = "/usr/local/bin/git-lfs";
 #endif
@@ -652,6 +655,41 @@ static int _PushUpdateReferenceCallback(const char* refspec, const char* message
 static int _PushNegotiationCallback(git_remote* remote, const git_push_update** updates, size_t len, void* payload) {
 #if !TARGET_OS_IPHONE
   GCRepository* repository = (__bridge GCRepository*)payload;
+  
+  // Ask delegate if should reject
+  id<GCRepositoryDelegate> delegate = [repository delegate];
+  
+  if ([delegate respondsToSelector:@selector(async_repository:shouldRejectPushNegotiationWithUpdatedHeads:)]) {
+    NSString* rejectionReason;
+    NSMutableDictionary* updatedHeads = [[NSMutableDictionary alloc] init];
+    
+    // Get remote's updated heads
+    const git_remote_head** headList;
+    size_t headCount;
+    NSError* error2 = nil; NSError* __strong* error = &error; // unused, but required to execute the libgit2 macro
+    CALL_LIBGIT2_FUNCTION_RETURN(GIT_ERROR, git_remote_ls, &headList, &headCount, remote);
+    for (size_t i = 0; i < headCount; ++i) {
+      const git_remote_head* head = headList[i];
+      
+      if (git_reference__is_branch(head->name) && !head->symref_target) {
+        NSString* headName = [NSString stringWithCString:head->name encoding:NSASCIIStringEncoding];
+        NSString* headSha1 = GCGitOIDToSHA1(&head->oid);
+        
+        [updatedHeads setObject:headSha1 forKey:headName];
+      }
+    }
+    
+    // Call delegate
+    rejectionReason = [delegate async_repository:repository shouldRejectPushNegotiationWithUpdatedHeads:updatedHeads];
+    
+    // Reason provided? Abort
+    if (rejectionReason) {
+      giterr_set_str(GITERR_NET, [rejectionReason cStringUsingEncoding:NSASCIIStringEncoding]);
+      return GIT_ERROR;
+    }
+  }
+  
+  // Run pre-push hook
   if ([repository pathForHookWithName:@"pre-push"]) {
     NSMutableString* string = [[NSMutableString alloc] init];  // Format is "<local ref> SP <local sha1> SP <remote ref> SP <remote sha1> LF"
     for (size_t i = 0; i < len; ++i) {

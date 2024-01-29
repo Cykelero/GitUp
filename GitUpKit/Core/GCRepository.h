@@ -48,6 +48,7 @@ typedef NS_ENUM(NSUInteger, GCFileMode) {
 - (BOOL)repository:(GCRepository*)repository requiresPlainTextAuthenticationForURL:(NSURL*)url user:(NSString*)user username:(NSString**)username password:(NSString**)password;
 - (BOOL)repository:(GCRepository*)repository requiresSSHAuthenticationForURL:(NSURL*)url user:(NSString*)user username:(NSString**)username publicKeyPath:(NSString**)publicPath privateKeyPath:(NSString**)privatePath passphrase:(NSString**)passphrase;
 - (void)repository:(GCRepository*)repository updateTransferProgress:(float)progress transferredBytes:(NSUInteger)bytes;  // Progress is in [0,1] range
+- (NSString*)async_repository:(GCRepository*)repository shouldRejectPushNegotiationWithUpdatedHeads:(NSDictionary<NSString *, NSString *>*)updatedHeadInfos;
 - (void)repository:(GCRepository*)repository didFinishTransferWithURL:(NSURL*)url success:(BOOL)success;
 @end
 
