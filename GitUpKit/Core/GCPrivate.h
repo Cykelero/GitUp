@@ -49,6 +49,7 @@ static inline NSString* GetLastGitErrorMessage() {
 #define LOG_LIBGIT2_ERROR(__CODE__)                                            \
   do {                                                                         \
     XLOG_DEBUG_CHECK(__CODE__ != GIT_OK);                                      \
+    if ([GetLastGitErrorMessage() hasPrefix: @"config value '"]) { break; }    \
     XLOG_ERROR(@"libgit2 error (%i): %@", __CODE__, GetLastGitErrorMessage()); \
   } while (0)
 
