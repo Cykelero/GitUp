@@ -764,7 +764,7 @@ cleanup:
   }
   [[NSNotificationCenter defaultCenter] postNotificationName:GCLiveRepositorySnapshotsDidUpdateNotification object:self];
 
-  [self _writeSnapshots];
+  //[self _writeSnapshots]; // Retcon: don't persist snapshots
   return YES;
 }
 
@@ -794,7 +794,7 @@ cleanup:
   BOOL notify = NO;
   if (flag && !_snapshots) {
     _snapshots = [[NSMutableArray alloc] init];
-    [self _readSnapshots];
+    //[self _readSnapshots]; // Retcon: don't persist snapshots
     if (![self _saveAutomaticSnapshotIfNeeded:YES]) {
       notify = YES;
     }
