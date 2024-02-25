@@ -486,6 +486,17 @@ static int _CredentialsCallback(git_cred** cred, const char* url, const char* us
 #if !TARGET_OS_IPHONE
     if (!repository->_didTrySSHAgent) {
       repository->_didTrySSHAgent = YES;
+      
+      // Ask SSH agent to load all keys (that have a passphrase in the keychain)
+      // TODO: Ideally, we should read ~/.ssh/config and only load the relevant key
+      NSTask *task = [[NSTask alloc] init];
+      task.launchPath = @"/usr/bin/ssh-add";
+      task.arguments = @[@"--apple-load-keychain"];
+      
+      [task launch];
+      [task waitUntilExit];
+      
+      // Tell libgit2 to ask the agent for a key
       return git_cred_ssh_key_from_agent(cred, user);
     }
 #endif
