@@ -306,6 +306,14 @@ static int _ReferenceForEachCallback(const char* refname, void* payload) {
   return [self exportBlobWithOID:&oid toPath:path error:error];
 }
 
+- (NSData*)exportBlobWithSHA1:(NSString*)sha1 error:(NSError**)error {
+  git_oid oid;
+  if (!GCGitOIDFromSHA1(sha1, &oid, error)) {
+    return NO;
+  }
+  return [self exportBlobWithOID:&oid error:error];
+}
+
 #if !TARGET_OS_IPHONE
 
 - (NSString*)pathForHookWithName:(NSString*)name {
