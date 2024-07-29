@@ -440,13 +440,25 @@ cleanup:
 }
 
 - (BOOL)pushTipCommit:(GCCommit*)tipCommit toRemoteBranch:(GCRemoteBranch*)remoteBranch force:(BOOL)force error:(NSError**)error {
+  // Get destination remote, and destination branch name
+  NSString* destinationBranchName;
+  GCRemote* destinationRemote = [self lookupRemoteForRemoteBranch:remoteBranch sourceBranchName:&destinationBranchName error:error];
+  if (destinationRemote == nil) {
+    return NO;
+  }
+  
+  return [self pushTipCommit:tipCommit toBranchNamed:destinationBranchName onRemote:destinationRemote force:force error:error];
+}
+
+- (BOOL)pushTipCommit:(GCCommit*)tipCommit toBranchNamed:(NSString*)destinationBranchName onRemote:(GCRemote*)destinationRemote force:(BOOL)force error:(NSError**)error {
   // Generate temporary ref for pathspec source name
-  // libgit2 doesn't support passing a sha1 (unlike the git cli), so we create a temporary, hopefully invisible ref to pass to it.
+  // libgit2 doesn't support passing a sha1 (unlike the Git cli), so we create a temporary, hopefully invisible ref to pass to it.
   NSString* sourceSHA1 = tipCommit.SHA1;
   NSString* tempRefParentRelativePath = @"refs/retcon/temp";
   NSString* tempRefRelativePath = [tempRefParentRelativePath stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
   
-  const char* sourceName = [tempRefRelativePath cStringUsingEncoding:NSASCIIStringEncoding];
+  NSString* sourceNameNSString = (tipCommit == nil) ? @"" : tempRefRelativePath; // if deleting the branch: don't use the temp ref, and instead pass an empty one
+  const char* sourceName = [sourceNameNSString cStringUsingEncoding:NSASCIIStringEncoding];
   
   // // Create folder (should only happen once)
   NSString* tempRefFolderAbsolutePath = [self.repositoryPath stringByAppendingPathComponent:tempRefParentRelativePath];
@@ -460,17 +472,12 @@ cleanup:
     return NO;
   }
   
-  // Get destination remote, and destination branch pathspec-compatible name
   // When pushing, you need to specify the branch name in `refs/heads/main` format, not `refs/remotes/origin/main` format
-  NSString* destinationName;
-  GCRemote* destinationRemote = [self lookupRemoteForRemoteBranch:remoteBranch sourceBranchName:&destinationName error:error];
-  if (destinationRemote == nil) {
-    return NO;
-  }
-  destinationName = [@"refs/heads/" stringByAppendingString:destinationName];
+  NSString* destinationName = [@"refs/heads/" stringByAppendingString:destinationBranchName];
   
   // Perform push
   if (![self _pushSourceReference:sourceName toRemote:destinationRemote.private destinationReference:[destinationName cStringUsingEncoding:NSASCIIStringEncoding] force:force error:error]) {
+    [[NSFileManager defaultManager] removeItemAtPath:tempRefAbsolutePath error:nil];
     return NO;
   }
   

@@ -60,6 +60,7 @@ typedef NS_OPTIONS(NSUInteger, GCRemoteCheckOptions) {
 - (NSArray*)fetchTagsFromRemote:(GCRemote*)remote prune:(BOOL)prune updatedTips:(NSUInteger*)updatedTips error:(NSError**)error;  // git fetch {remote} 'refs/tags/*:refs/tags/*' - Returns the tags in the remote
 
 - (BOOL)pushTipCommit:(GCCommit*)tipCommit toRemoteBranch:(GCRemoteBranch*)remoteBranch force:(BOOL)force error:(NSError**)error;
+- (BOOL)pushTipCommit:(GCCommit*)tipCommit toBranchNamed:(NSString*)destinationBranchName onRemote:(GCRemote*)destinationRemote force:(BOOL)force error:(NSError**)error;
 - (BOOL)pushLocalBranchToUpstream:(GCLocalBranch*)branch force:(BOOL)force usedRemote:(GCRemote**)usedRemote error:(NSError**)error;  // git push
 - (BOOL)pushLocalBranch:(GCLocalBranch*)branch toRemote:(GCRemote*)remote force:(BOOL)force setUpstream:(BOOL)setUpstream error:(NSError**)error;  // git push {-f} {-u} {remote} 'refs/heads/{branch}:refs/heads/{branch}'
 - (BOOL)pushTag:(GCTag*)tag toRemote:(GCRemote*)remote force:(BOOL)force error:(NSError**)error;  // git push {-f} {remote} 'refs/tags/{tag}:refs/tags/{tag}'
