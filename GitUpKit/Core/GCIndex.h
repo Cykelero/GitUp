@@ -29,6 +29,9 @@ typedef BOOL (^GCIndexLineFilter)(GCLineDiffChange change, NSUInteger oldLineNum
 
 @interface GCIndexConflict : NSObject
 @property(nonatomic, readonly) NSString* path;
+@property(nonatomic, readonly) NSString* ancestorPath;  // May be nil
+@property(nonatomic, readonly) NSString* ourPath;  // May be nil
+@property(nonatomic, readonly) NSString* theirPath;  // May be nil
 @property(nonatomic, readonly) GCIndexConflictStatus status;
 @property(nonatomic, readonly) NSString* ancestorBlobSHA1;  // May be nil
 @property(nonatomic, readonly) GCFileMode ancestorFileMode;
