@@ -32,10 +32,15 @@ extern void git_index_entry__init_from_stat(git_index_entry* entry, struct stat*
   git_oid _theirOID;
 }
 
-- (id)initWithAncestor:(const git_index_entry*)ancestor our:(const git_index_entry*)our their:(const git_index_entry*)their {
+- (id)initWithAncestor:(const git_index_entry*)ancestor
+                   our:(const git_index_entry*)our
+                 their:(const git_index_entry*)their
+         canonicalPath:(NSString*)canonicalPath
+          ancestorPath:(NSString*)ancestorPath
+               ourPath:(NSString*)ourPath
+             theirPath:(NSString*)theirPath {
   if ((self = [super init])) {
     if (our && their) {
-      XLOG_DEBUG_CHECK(!strcmp(our->path, their->path));
       _status = ancestor ? kGCIndexConflictStatus_BothModified : kGCIndexConflictStatus_BothAdded;
 
       git_oid_cpy(&_ourOID, &our->id);
@@ -46,14 +51,12 @@ extern void git_index_entry__init_from_stat(git_index_entry* entry, struct stat*
       XLOG_DEBUG_CHECK((their->mode == GIT_FILEMODE_BLOB) || (their->mode == GIT_FILEMODE_BLOB_EXECUTABLE) || (their->mode == GIT_FILEMODE_LINK) || (their->mode == GIT_FILEMODE_COMMIT));
       _theirFileMode = GCFileModeFromMode(their->mode);
     } else if (our) {
-      XLOG_DEBUG_CHECK(!strcmp(our->path, ancestor->path));
       _status = kGCIndexConflictStatus_DeletedByThem;
 
       git_oid_cpy(&_ourOID, &our->id);
       XLOG_DEBUG_CHECK((our->mode == GIT_FILEMODE_BLOB) || (our->mode == GIT_FILEMODE_BLOB_EXECUTABLE) || (our->mode == GIT_FILEMODE_LINK));
       _ourFileMode = GCFileModeFromMode(our->mode);
     } else if (their) {
-      XLOG_DEBUG_CHECK(!strcmp(their->path, ancestor->path));
       _status = kGCIndexConflictStatus_DeletedByUs;
 
       git_oid_cpy(&_theirOID, &their->id);
@@ -67,16 +70,10 @@ extern void git_index_entry__init_from_stat(git_index_entry* entry, struct stat*
       XLOG_DEBUG_CHECK((ancestor->mode == GIT_FILEMODE_BLOB) || (ancestor->mode == GIT_FILEMODE_BLOB_EXECUTABLE) || (ancestor->mode == GIT_FILEMODE_LINK) || (ancestor->mode == GIT_FILEMODE_COMMIT));
       _ancestorFileMode = GCFileModeFromMode(ancestor->mode);
     }
-    if (our) {
-      _path = GCFileSystemPathFromGitPath(our->path);
-    } else if (their) {
-      _path = GCFileSystemPathFromGitPath(their->path);
-    } else if (ancestor) {
-      _path = GCFileSystemPathFromGitPath(ancestor->path);
-    } else {
-      XLOG_DEBUG_UNREACHABLE();
-      return nil;
-    }
+    _path = canonicalPath; // may not match the Git definition of a canonical conflict path, if that exists.
+    _ancestorPath = ancestorPath;
+    _ourPath = ourPath;
+    _theirPath = theirPath;
   }
   return self;
 }
@@ -191,22 +188,96 @@ static inline BOOL _EqualConflicts(GCIndexConflict* conflict1, GCIndexConflict* 
 }
 
 - (void)enumerateConflictsUsingBlock:(void (^)(GCIndexConflict* conflict, BOOL* stop))block {
+  size_t nameEntryCount = git_index_name_entrycount(_private);
+
   git_index_conflict_iterator* iterator;
   int status = git_index_conflict_iterator_new(&iterator, _private);  // This cannot fail in practice
   if (status < 0) {
     XLOG_DEBUG_UNREACHABLE();
     return;
   }
+
   while (1) {
     const git_index_entry* ancestor;
     const git_index_entry* our;
     const git_index_entry* their;
+    NSString* canonicalPath;
+
+    // Get next conflict entries
     status = git_index_conflict_next(&ancestor, &our, &their, iterator);  // This cannot fail in practice
     if (status < 0) {
       XLOG_DEBUG_CHECK(status == GIT_ITEROVER);
       break;
     }
-    GCIndexConflict* conflict = [[GCIndexConflict alloc] initWithAncestor:ancestor our:our their:their];
+
+    // Determine canonical path
+    // May not match the Git definition of a canonical conflict path, if that exists.
+    if (their) {
+      canonicalPath = GCFileSystemPathFromGitPath(their->path);
+    } else if (our) {
+      canonicalPath = GCFileSystemPathFromGitPath(our->path);
+    } else if (ancestor) {
+      canonicalPath = GCFileSystemPathFromGitPath(ancestor->path);
+    } else {
+      XLOG_DEBUG_UNREACHABLE();
+      continue;
+    }
+
+    // If some entries are missing, this conflict might be on a renamed file
+    // Try to find the rest of the conflict entries.
+    // If we don't find anything: this is *not* related to renaming. Keep this conflict as-is.
+    // If we do find other entries: use them to complete this conflict, but only if we're the *theirs* side, or if there is no other side. If not, it'll come up in a different iteration (or already has)
+    BOOL shouldSkipThisConflict = false;
+
+    if (!ancestor || !our || !their) {
+      BOOL isTheirSideOfConflict = !!their;
+      
+      for (size_t nameEntryIndex = 0; nameEntryIndex < nameEntryCount; ++nameEntryIndex) {
+        const git_index_name_entry* nameEntry = git_index_name_get_byindex(_private, nameEntryIndex);
+        
+        if (ancestor && strcmp(ancestor->path, nameEntry->ancestor) == 0) {
+          shouldSkipThisConflict = !isTheirSideOfConflict;
+          
+          if (!our && nameEntry->ours) our = git_index_get_bypath(_private, nameEntry->ours, 2);
+          if (!their && nameEntry->theirs) their = git_index_get_bypath(_private, nameEntry->theirs, 3);
+          break;
+        }
+        
+        if (our && strcmp(our->path, nameEntry->ours) == 0) {
+          shouldSkipThisConflict = !isTheirSideOfConflict;
+          
+          if (!ancestor && nameEntry->ancestor) ancestor = git_index_get_bypath(_private, nameEntry->ancestor, 1);
+          if (!their && nameEntry->theirs) their = git_index_get_bypath(_private, nameEntry->theirs, 3);
+          break;
+        }
+        
+        if (their && strcmp(their->path, nameEntry->theirs) == 0) {
+          shouldSkipThisConflict = !isTheirSideOfConflict;
+          
+          if (!ancestor && nameEntry->ancestor) ancestor = git_index_get_bypath(_private, nameEntry->ancestor, 1);
+          if (!our && nameEntry->ours) our = git_index_get_bypath(_private, nameEntry->ours, 2);
+          break;
+        }
+      }
+    }
+
+    if (shouldSkipThisConflict) {
+      continue;
+    }
+
+    // Call callback with GCIndexConflict
+    GCIndexConflict* conflict =
+    [
+      [GCIndexConflict alloc]
+      initWithAncestor:ancestor
+      our:our
+      their:their
+      canonicalPath:canonicalPath
+      ancestorPath:(ancestor ? GCFileSystemPathFromGitPath(ancestor->path) : nil)
+      ourPath:(our ? GCFileSystemPathFromGitPath(our->path) : nil)
+      theirPath:(their ? GCFileSystemPathFromGitPath(their->path) : nil)
+    ];
+
     if (conflict) {
       BOOL stop = NO;
       block(conflict, &stop);
@@ -227,6 +298,12 @@ static inline BOOL _EqualConflicts(GCIndexConflict* conflict1, GCIndexConflict* 
     const git_index_entry* entry = git_index_get_byindex(_private, i);
     if (git_index_entry_stage(entry) == 0) {
       [string appendFormat:@"\n[%s] %s", git_oid_tostr_s(&entry->id), entry->path];
+    }
+  }
+  for (size_t i = 0; i < count; ++i) {
+    const git_index_entry* entry = git_index_get_byindex(_private, i);
+    if (git_index_entry_stage(entry) != 0) {
+      [string appendFormat:@"\n(%i) [%s] %s", git_index_entry_stage(entry), git_oid_tostr_s(&entry->id), entry->path];
     }
   }
   return string;
