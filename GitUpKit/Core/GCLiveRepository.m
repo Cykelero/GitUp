@@ -526,10 +526,17 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
 				case GIT_STATUS_WT_TYPECHANGE:
 					newFilePath = entry->index_to_workdir->new_file.path;
 					
-					// (Ignored) git folder?
+					// Ignored Git folder? (this isn't necessarily a submodule; it could be a Git folder in an ignored folder)
 					if (newFilePath[strlen(newFilePath) - 1] == '/') {
 						// Add to ignored paths, don't add to index
 						[existingIgnoredPaths addObject:[NSString stringWithUTF8String:newFilePath]];
+						continue;
+					}
+					
+					// Submodule?
+					if (entry->index_to_workdir->new_file.mode == GIT_FILEMODE_COMMIT) {
+						// Ignore (not yet supported)
+						// Because of how this method works (it relies on a diff), the submodule WILL be included in the workdir cache if it is staged when refreshing the cache. This is fine.
 						continue;
 					}
 					
