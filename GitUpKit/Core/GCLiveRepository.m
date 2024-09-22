@@ -627,44 +627,56 @@ cleanup:
 		&renameInvolvingConflictPaths
 	);
 	
+	NSArray<NSString*>* allPathsToWrite = [modifiedPaths arrayByAddingObjectsFromArray:[deletedPaths arrayByAddingObjectsFromArray:renameInvolvingConflictPaths]];
+	
   // Write working directory
-	// // Write paths from conflicts involving a rename all at once
-	// // For a conflict involving renamed files, libgit2 needs us to check out all paths in one function call. However, performing a checkout of multiple paths at once can be extremely slow, as described in “Make updatingCacheWriteWorkingDirectory faster by checking out files individually” (f1275f2) so this is done only for conflicts that do involve multiple paths.
-#if DEBUG
-	for (NSString* renameInvolvingConflictPath in renameInvolvingConflictPaths) {
-		int fileIsIgnored;
-		CALL_LIBGIT2_FUNCTION_RETURN(NO, git_ignore_path_is_ignored, &fileIsIgnored, self.private, GCGitPathFromFileSystemPath(renameInvolvingConflictPath));
-		NSAssert(!fileIsIgnored, @"The code isn't ready to handle this case: modifying/creating ignored file “%@”. The file will be in the workdir cache, but shouldn't be; and might not be in the existing ignored paths cache.", renameInvolvingConflictPath);
-	}
-#endif
-	
-	if (![self checkoutFilesToWorkingDirectory:renameInvolvingConflictPaths fromIndex:newWorkingDirectoryIndex error:error]) {
-		return NO;
-	}
-	
-	// // Write modified
-	for (NSString* modifiedPath in modifiedPaths) {
-#if DEBUG
-		int fileIsIgnored;
-		CALL_LIBGIT2_FUNCTION_RETURN(NO, git_ignore_path_is_ignored, &fileIsIgnored, self.private, GCGitPathFromFileSystemPath(modifiedPath));
-		NSAssert(!fileIsIgnored, @"The code isn't ready to handle this case: modifying/creating ignored file “%@”. The file will be in the workdir cache, but shouldn't be; and might not be in the existing ignored paths cache.", modifiedPath);
-#endif
-		
-		if (![self checkoutFilesToWorkingDirectory:@[ modifiedPath ] fromIndex:newWorkingDirectoryIndex error:error]) {
+	if ([renameInvolvingConflictPaths count] > 0) {
+		// There are conflicts involving renames: bypass checkout-one-file-at-a-time optimization, and instead checkout all files at once
+		// This is hopefully temporary. When such a conflict exists, libgit2 fails to perform a checkout from the index, if not all paths involved in the conflict are requested for checkout (included in the passed pathspec). This is because it tries to coalesce all renames, regardless of the pathspec. (checkout_conflicts_coalesce_renames() calls checkout_conflicts_load_byname_entry(), which fails with “a NAME entry referenced ancestor entry '%s' which does not exist in the main index”)
+		// What we'd really like to do instead is perform the smaller checkout below. (checking out all renameInvolvingConflictPaths at once, and then other paths one by one)
+		// Maybe this limitation will be removed by a libgit2 upgrade, or maybe I'll find a way around it, or maybe I misunderstood the situation.
+		if (![self checkoutFilesToWorkingDirectory:allPathsToWrite fromIndex:newWorkingDirectoryIndex error:error]) {
 			return NO;
 		}
-	}
-	
-	// // Delete deleted
-	for (NSString* deletedPath in deletedPaths) {
+	} else {
+		// Write paths from conflicts involving a rename all at once [currently does nothing, see bypass above]
+		// For a conflict involving renamed files, libgit2 needs us to check out all paths in one function call. However, performing a checkout of multiple paths at once can be extremely slow, as described in “Make updatingCacheWriteWorkingDirectory faster by checking out files individually” (f1275f2) so this is done only for conflicts that do involve multiple paths.
 #if DEBUG
-		int fileIsIgnored;
-		CALL_LIBGIT2_FUNCTION_RETURN(NO, git_ignore_path_is_ignored, &fileIsIgnored, self.private, GCGitPathFromFileSystemPath(deletedPath));
-		NSAssert(!fileIsIgnored, @"Something's wrong: deleting ignored file “%@”", deletedPath);
+		for (NSString* renameInvolvingConflictPath in renameInvolvingConflictPaths) {
+			int fileIsIgnored;
+			CALL_LIBGIT2_FUNCTION_RETURN(NO, git_ignore_path_is_ignored, &fileIsIgnored, self.private, GCGitPathFromFileSystemPath(renameInvolvingConflictPath));
+			NSAssert(!fileIsIgnored, @"The code isn't ready to handle this case: modifying/creating ignored file “%@”. The file will be in the workdir cache, but shouldn't be; and might not be in the existing ignored paths cache.", renameInvolvingConflictPath);
+		}
 #endif
 		
-		if (![[NSFileManager defaultManager] removeItemAtPath:[self absolutePathForFile:deletedPath] error:error]) {
+		if (![self checkoutFilesToWorkingDirectory:renameInvolvingConflictPaths fromIndex:newWorkingDirectoryIndex error:error]) {
 			return NO;
+		}
+		
+		// Write modified
+		for (NSString* modifiedPath in modifiedPaths) {
+#if DEBUG
+			int fileIsIgnored;
+			CALL_LIBGIT2_FUNCTION_RETURN(NO, git_ignore_path_is_ignored, &fileIsIgnored, self.private, GCGitPathFromFileSystemPath(modifiedPath));
+			NSAssert(!fileIsIgnored, @"The code isn't ready to handle this case: modifying/creating ignored file “%@”. The file will be in the workdir cache, but shouldn't be; and might not be in the existing ignored paths cache.", modifiedPath);
+#endif
+			
+			if (![self checkoutFilesToWorkingDirectory:@[ modifiedPath ] fromIndex:newWorkingDirectoryIndex error:error]) {
+				return NO;
+			}
+		}
+		
+		// Delete deleted
+		for (NSString* deletedPath in deletedPaths) {
+#if DEBUG
+			int fileIsIgnored;
+			CALL_LIBGIT2_FUNCTION_RETURN(NO, git_ignore_path_is_ignored, &fileIsIgnored, self.private, GCGitPathFromFileSystemPath(deletedPath));
+			NSAssert(!fileIsIgnored, @"Something's wrong: deleting ignored file “%@”", deletedPath);
+#endif
+			
+			if (![[NSFileManager defaultManager] removeItemAtPath:[self absolutePathForFile:deletedPath] error:error]) {
+				return NO;
+			}
 		}
 	}
 	
@@ -676,7 +688,7 @@ cleanup:
 	// Update cache
 	BOOL someGitignoreFileChanged = false;
 	
-	for (NSString* path in [modifiedPaths arrayByAddingObjectsFromArray:[deletedPaths arrayByAddingObjectsFromArray:renameInvolvingConflictPaths]]) {
+	for (NSString* path in allPathsToWrite) {
 		if ([[path lastPathComponent] isEqualToString:@".gitignore"]) {
 			someGitignoreFileChanged = true;
 			break;
