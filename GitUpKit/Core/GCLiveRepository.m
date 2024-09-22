@@ -715,7 +715,16 @@ cleanup:
 		
 		[newWorkingDirectoryIndex enumerateConflictsUsingBlock:^(GCIndexConflict* conflict, BOOL* stop) {
 			[self removeEntry:conflict.path fromIndex:processedIndex failIfMissing:true error:error];
-			[self addFileInWorkingDirectory:conflict.path toIndex:processedIndex error:error];
+			
+			NSError* localError = nil;
+			if (![self addFileInWorkingDirectory:conflict.path toIndex:processedIndex error:&localError]) {
+				BOOL wasJustTryingToStageADeletedConflictingFile =
+					[[localError localizedDescription] isEqualToString:@"No such file or directory"];
+				
+				if (!wasJustTryingToStageADeletedConflictingFile) {
+					*error = localError; // is actually a relevant error
+				}
+			}
 		}];
 		
 		if (*error != nil) {
