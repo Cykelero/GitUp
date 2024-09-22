@@ -617,15 +617,31 @@ cleanup:
 	// Get index diff (implementing this in Objective-C would be too much for me)
 	NSArray<NSString*>* modifiedPaths;
 	NSArray<NSString*>* deletedPaths;
+	NSArray<NSString*>* renameInvolvingConflictPaths;
 	
 	diffIndexesBlock(
 		_workingDirectoryContent,
 		newWorkingDirectoryIndex,
 		&modifiedPaths,
-		&deletedPaths
+		&deletedPaths,
+		&renameInvolvingConflictPaths
 	);
 	
   // Write working directory
+	// // Write paths from conflicts involving a rename all at once
+	// // For a conflict involving renamed files, libgit2 needs us to check out all paths in one function call. However, performing a checkout of multiple paths at once can be extremely slow, as described in “Make updatingCacheWriteWorkingDirectory faster by checking out files individually” (f1275f2) so this is done only for conflicts that do involve multiple paths.
+#if DEBUG
+	for (NSString* renameInvolvingConflictPath in renameInvolvingConflictPaths) {
+		int fileIsIgnored;
+		CALL_LIBGIT2_FUNCTION_RETURN(NO, git_ignore_path_is_ignored, &fileIsIgnored, self.private, GCGitPathFromFileSystemPath(renameInvolvingConflictPath));
+		NSAssert(!fileIsIgnored, @"The code isn't ready to handle this case: modifying/creating ignored file “%@”. The file will be in the workdir cache, but shouldn't be; and might not be in the existing ignored paths cache.", renameInvolvingConflictPath);
+	}
+#endif
+	
+	if (![self checkoutFilesToWorkingDirectory:renameInvolvingConflictPaths fromIndex:newWorkingDirectoryIndex error:error]) {
+		return NO;
+	}
+	
 	// // Write modified
 	for (NSString* modifiedPath in modifiedPaths) {
 #if DEBUG
@@ -660,7 +676,7 @@ cleanup:
 	// Update cache
 	BOOL someGitignoreFileChanged = false;
 	
-	for (NSString* path in [modifiedPaths arrayByAddingObjectsFromArray:deletedPaths]) {
+	for (NSString* path in [modifiedPaths arrayByAddingObjectsFromArray:[deletedPaths arrayByAddingObjectsFromArray:renameInvolvingConflictPaths]]) {
 		if ([[path lastPathComponent] isEqualToString:@".gitignore"]) {
 			someGitignoreFileChanged = true;
 			break;
