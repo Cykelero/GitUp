@@ -30,12 +30,12 @@ typedef NS_ENUM(NSUInteger, GCLiveRepositoryDiffWhitespaceMode) {
   kGCLiveRepositoryDiffWhitespaceMode_IgnoreAll
 };
 
-// I'm not confident in my ability to properly memory-manage out arguments, so I'm returning the result through a completion block instead
 typedef void (^GCDiffIndexesBlock)(
 																	 GCIndex* from,
 																	 GCIndex* to,
 																	 NSArray<NSString*>** outModifiedPaths,
-																	 NSArray<NSString*>** outDeletedPaths
+																	 NSArray<NSString*>** outDeletedPaths,
+																	 NSArray<NSString*>** outRenameInvolvingConflictPaths
 																	 );
 
 extern NSString* const GCLiveRepositoryDidChangeNotification;
