@@ -507,7 +507,7 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
 	NSMutableArray* existingIgnoredPaths = [[NSMutableArray alloc] init];
 	
 	// Create and iterate status list
-	if (repositoryIndex != nil && initialRepositoryIndex != nil) {
+	if (repositoryIndex != nil && initialRepositoryIndex != nil && theError == nil) { // only if init went well
 		// Create status list
 		git_status_options options = GIT_STATUS_OPTIONS_INIT;
 		options.show = GIT_STATUS_SHOW_WORKDIR_ONLY;
@@ -573,6 +573,11 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
 					XLOG_DEBUG_UNREACHABLE();
 					break;
 			}
+		}
+		
+		// Check for errors before writing repository index
+		if (theError != nil) {
+			goto cleanup;
 		}
 		
 		// Create in-memory index from repository index
