@@ -670,18 +670,19 @@ cleanup:
 				return NO;
 			}
 		}
-		
-		// Delete deleted
-		for (NSString* deletedPath in deletedPaths) {
+	}
+	
+	// // Delete deleted
+	// // git_checkout_index (used by checkoutFilesToWorkingDirectory, called above) does NOT seem to delete files, so we're always doing it ourselves.
+	for (NSString* deletedPath in deletedPaths) {
 #if DEBUG
-			int fileIsIgnored;
-			CALL_LIBGIT2_FUNCTION_RETURN(NO, git_ignore_path_is_ignored, &fileIsIgnored, self.private, GCGitPathFromFileSystemPath(deletedPath));
-			NSAssert(!fileIsIgnored, @"Something's wrong: deleting ignored file “%@”", deletedPath);
+		int fileIsIgnored;
+		CALL_LIBGIT2_FUNCTION_RETURN(NO, git_ignore_path_is_ignored, &fileIsIgnored, self.private, GCGitPathFromFileSystemPath(deletedPath));
+		NSAssert(!fileIsIgnored, @"Something's wrong: deleting ignored file “%@”", deletedPath);
 #endif
-			
-			if (![[NSFileManager defaultManager] removeItemAtPath:[self absolutePathForFile:deletedPath] error:error]) {
-				return NO;
-			}
+		
+		if (![[NSFileManager defaultManager] removeItemAtPath:[self absolutePathForFile:deletedPath] error:error]) {
+			return NO;
 		}
 	}
 	
