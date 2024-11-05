@@ -712,7 +712,7 @@ cleanup:
 		// - For the ignored paths cache: I think I'd have to iterate over every single known file (present in either current workdir cache, or in new workdir index, or in current ignored paths cache) and check its ignored status with libgit2, and add/remove it from the ignored paths list accordingly.
 	} else {
 		// Update working directory cache
-		// Creates a copy of the provided index, but with materialized conflicts
+		// Creates a copy of the provided index, but with materialized conflicts: for each conflict, reads its files from the workdir into the workdir cache.
 		GCIndex* processedIndex = [self createInMemoryCopyOfIndex:newWorkingDirectoryIndex error:error];
 		if (*error != nil) {
 			_workingDirectoryContent = nil;
@@ -720,15 +720,48 @@ cleanup:
 		}
 		
 		[newWorkingDirectoryIndex enumerateConflictsUsingBlock:^(GCIndexConflict* conflict, BOOL* stop) {
-			[self removeEntry:conflict.path fromIndex:processedIndex failIfMissing:true error:error];
-			
-			NSError* localError = nil;
-			if (![self addFileInWorkingDirectory:conflict.path toIndex:processedIndex error:&localError]) {
-				BOOL wasJustTryingToStageADeletedConflictingFile =
-					[[localError localizedDescription] isEqualToString:@"No such file or directory"];
+			// Ancestor path
+			if (conflict.ancestorPath) {
+				[self removeEntry:conflict.ancestorPath fromIndex:processedIndex failIfMissing:true error:error];
 				
-				if (!wasJustTryingToStageADeletedConflictingFile) {
-					*error = localError; // is actually a relevant error
+				NSError* localError = nil;
+				if (![self addFileInWorkingDirectory:conflict.ancestorPath toIndex:processedIndex error:&localError]) {
+					BOOL wasJustTryingToStageADeletedConflictingFile =
+					[[localError localizedDescription] isEqualToString:@"No such file or directory"];
+					
+					if (!wasJustTryingToStageADeletedConflictingFile) {
+						*error = localError; // is actually a relevant error
+					}
+				}
+			}
+			
+			// Our path
+			if (conflict.ourPath && conflict.ourPath != conflict.ancestorPath) {
+				[self removeEntry:conflict.ourPath fromIndex:processedIndex failIfMissing:true error:error];
+				
+				NSError* localError = nil;
+				if (![self addFileInWorkingDirectory:conflict.ourPath toIndex:processedIndex error:&localError]) {
+					BOOL wasJustTryingToStageADeletedConflictingFile =
+					[[localError localizedDescription] isEqualToString:@"No such file or directory"];
+					
+					if (!wasJustTryingToStageADeletedConflictingFile) {
+						*error = localError; // is actually a relevant error
+					}
+				}
+			}
+			
+			// Their path
+			if (conflict.theirPath && conflict.theirPath != conflict.ancestorPath && conflict.theirPath != conflict.ourPath) {
+				[self removeEntry:conflict.theirPath fromIndex:processedIndex failIfMissing:true error:error];
+				
+				NSError* localError = nil;
+				if (![self addFileInWorkingDirectory:conflict.theirPath toIndex:processedIndex error:&localError]) {
+					BOOL wasJustTryingToStageADeletedConflictingFile =
+					[[localError localizedDescription] isEqualToString:@"No such file or directory"];
+					
+					if (!wasJustTryingToStageADeletedConflictingFile) {
+						*error = localError; // is actually a relevant error
+					}
 				}
 			}
 		}];
