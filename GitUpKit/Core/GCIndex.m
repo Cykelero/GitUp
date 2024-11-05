@@ -235,7 +235,7 @@ static inline BOOL _EqualConflicts(GCIndexConflict* conflict1, GCIndexConflict* 
       for (size_t nameEntryIndex = 0; nameEntryIndex < nameEntryCount; ++nameEntryIndex) {
         const git_index_name_entry* nameEntry = git_index_name_get_byindex(_private, nameEntryIndex);
         
-        if (ancestor && strcmp(ancestor->path, nameEntry->ancestor) == 0) {
+        if (ancestor && nameEntry->ancestor && strcmp(ancestor->path, nameEntry->ancestor) == 0) {
           shouldSkipThisConflict = !isTheirSideOfConflict;
           
           if (!our && nameEntry->ours) our = git_index_get_bypath(_private, nameEntry->ours, 2);
@@ -243,7 +243,7 @@ static inline BOOL _EqualConflicts(GCIndexConflict* conflict1, GCIndexConflict* 
           break;
         }
         
-        if (our && strcmp(our->path, nameEntry->ours) == 0) {
+        if (our && nameEntry->ours && strcmp(our->path, nameEntry->ours) == 0) {
           shouldSkipThisConflict = !isTheirSideOfConflict;
           
           if (!ancestor && nameEntry->ancestor) ancestor = git_index_get_bypath(_private, nameEntry->ancestor, 1);
@@ -251,7 +251,7 @@ static inline BOOL _EqualConflicts(GCIndexConflict* conflict1, GCIndexConflict* 
           break;
         }
         
-        if (their && strcmp(their->path, nameEntry->theirs) == 0) {
+        if (their && nameEntry->theirs && strcmp(their->path, nameEntry->theirs) == 0) {
           shouldSkipThisConflict = !isTheirSideOfConflict;
           
           if (!ancestor && nameEntry->ancestor) ancestor = git_index_get_bypath(_private, nameEntry->ancestor, 1);
