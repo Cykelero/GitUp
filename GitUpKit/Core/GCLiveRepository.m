@@ -681,8 +681,12 @@ cleanup:
 		NSAssert(!fileIsIgnored, @"Something's wrong: deleting ignored file “%@”", deletedPath);
 #endif
 		
-		if (![[NSFileManager defaultManager] removeItemAtPath:[self absolutePathForFile:deletedPath] error:error]) {
-			return NO;
+		NSError* localError = nil;
+		if (![[NSFileManager defaultManager] removeItemAtPath:[self absolutePathForFile:deletedPath] error:&localError]) {
+			if (localError.code != NSFileNoSuchFileError) { // checkoutFilesToWorkingDirectory *sometimes* deletes files for rename conflicts
+				*error = localError;
+				return NO;
+			}
 		}
 	}
 	
