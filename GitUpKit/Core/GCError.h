@@ -29,3 +29,4 @@ typedef NS_ENUM(NSInteger, GCErrorCode) {
 
 // Negative errors are from libgit2 and positive errors from the API
 extern NSString* const GCErrorDomain;
+extern NSString* const GCErrorStackTraceKey;

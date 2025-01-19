@@ -24,11 +24,12 @@
 #import <sys/mount.h>
 
 NSString* const GCErrorDomain = @"GCErrorDomain";
+NSString* const GCErrorStackTraceKey = @"garden.lemon.stack-trace-key";
 
 NSError* GCNewError(NSInteger code, NSString* message) {
   return [NSError errorWithDomain:GCErrorDomain
                              code:code
-                         userInfo:@{NSLocalizedDescriptionKey : message}];
+                         userInfo:@{NSLocalizedDescriptionKey : message, GCErrorStackTraceKey : [NSThread callStackSymbols]}];
 }
 
 NSError* GCNewPosixError(int code, NSString* message) {
