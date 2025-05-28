@@ -340,8 +340,32 @@ static inline BOOL _EqualConflicts(GCIndexConflict* conflict1, GCIndexConflict* 
 }
 
 - (BOOL)resetRepositoryIndexToIndex:(GCIndex*)sourceIndex error:(NSError**)error {
-	// Get and clear repository index
-	GCIndex* repositoryIndex = [self readRepositoryIndex:error];
+  // Get repository index
+  GCIndex* repositoryIndex = [self readRepositoryIndex:error];
+  
+  // Copy stat cache from current index, to source index
+  // The stat cache allows workdir diffing to be very fast. This moves these values over to sourceIndex, so that they're preserved when sourceIndex overwrites the workdir index.
+  size_t count = git_index_entrycount(sourceIndex.private);
+  for (size_t i = 0; i < count; ++i) {
+    // For each source entry that's not conflicting
+    const git_index_entry* sourceEntry = git_index_get_byindex(sourceIndex.private, i);
+    if (git_index_entry_stage(sourceEntry) != 0) continue;
+    
+    // Find matching workdir entry
+    const git_index_entry* workdirEntry = git_index_get_bypath(repositoryIndex.private, sourceEntry->path, 0);
+    
+    if (
+        workdirEntry != NULL
+        && git_oid_equal(&workdirEntry->id, &sourceEntry->id)
+        && workdirEntry->flags == sourceEntry->flags
+        && workdirEntry->flags_extended == sourceEntry->flags_extended
+    ) {
+      // And if they are the same, replace the source entry with the workdir entry
+      CALL_LIBGIT2_FUNCTION_RETURN(NO, git_index_add, sourceIndex.private, workdirEntry);
+    }
+  }
+  
+	// Clear repository index
 	[self clearIndex:repositoryIndex error:error];
 	
 	if (*error != nil || !repositoryIndex) {
