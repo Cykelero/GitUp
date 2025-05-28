@@ -642,6 +642,7 @@ cleanup:
 	NSArray<NSString*>* allPathsToWrite = [modifiedPaths arrayByAddingObjectsFromArray:[deletedPaths arrayByAddingObjectsFromArray:renameInvolvingConflictPaths]];
 	
   // Write working directory
+  // This also writes these same files to the workdir index, but we'll overwrite it immediately with `newWorkingDirectoryIndex`.
 	if ([renameInvolvingConflictPaths count] > 0) {
 		// There are conflicts involving renames: bypass checkout-one-file-at-a-time optimization, and instead checkout all files at once
 		// This is hopefully temporary. When such a conflict exists, libgit2 fails to perform a checkout from the index, if not all paths involved in the conflict are requested for checkout (included in the passed pathspec). This is because it tries to coalesce all renames, regardless of the pathspec. (checkout_conflicts_coalesce_renames() calls checkout_conflicts_load_byname_entry(), which fails with “a NAME entry referenced ancestor entry '%s' which does not exist in the main index”)
