@@ -492,29 +492,36 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
 	NSError* __strong* error = &theError; // allows usage of CALL_LIBGIT2_FUNCTION_GOTO
 	
 	git_status_list* list = NULL;
+  
+  GCIndex* workingDirectoryContent = nil;
+  
+  GCIndex* repositoryIndex = nil;
+  GCIndex* initialRepositoryIndex = nil;
+    
+  NSMutableArray* existingIgnoredPaths = [[NSMutableArray alloc] init];
 	
-	CFAbsoluteTime startTime = CFAbsoluteTimeGetCurrent();
-	
-	// Prepare output
-	// // Working directory content (using the repo index as a buffer)
+  // Start measuring execution duration
+  CFAbsoluteTime startTime = CFAbsoluteTimeGetCurrent();
+  
+  // Create status list
+  // Must be done before capturing the current index, so that the stat cache update isn't reverted.
+  git_status_options options = GIT_STATUS_OPTIONS_INIT;
+  options.show = GIT_STATUS_SHOW_WORKDIR_ONLY;
+  options.flags =
+    GIT_STATUS_OPT_INCLUDE_UNTRACKED
+    | GIT_STATUS_OPT_RECURSE_UNTRACKED_DIRS
+    | GIT_STATUS_OPT_INCLUDE_IGNORED
+    | GIT_STATUS_OPT_UPDATE_INDEX;
+  
+  CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_status_list_new, &list, self.private, &options);
+  
+	// Prepare
 	// // TODO: We might be able to avoid writing to the repo's index by calling git_index_add instead of git_index_add_bypath: https://stackoverflow.com/a/57952919
-	GCIndex* workingDirectoryContent = nil;
-	
-	GCIndex* repositoryIndex = [self readRepositoryIndex:&theError];
-	GCIndex* initialRepositoryIndex = [self createInMemoryCopyOfIndex:repositoryIndex error:&theError];
-		
-	// // Existing ignored paths
-	NSMutableArray* existingIgnoredPaths = [[NSMutableArray alloc] init];
+	repositoryIndex = [self readRepositoryIndex:&theError]; // this is where we build up the new cache
+	initialRepositoryIndex = [self createInMemoryCopyOfIndex:repositoryIndex error:&theError]; // so that we can restore it afterwards
 	
 	// Create and iterate status list
 	if (repositoryIndex != nil && initialRepositoryIndex != nil && theError == nil) { // only if init went well
-		// Create status list
-		git_status_options options = GIT_STATUS_OPTIONS_INIT;
-		options.show = GIT_STATUS_SHOW_WORKDIR_ONLY;
-		options.flags = GIT_STATUS_OPT_INCLUDE_UNTRACKED | GIT_STATUS_OPT_RECURSE_UNTRACKED_DIRS | GIT_STATUS_OPT_INCLUDE_IGNORED;
-		
-		CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_status_list_new, &list, self.private, &options);
-		
 		// Iterate on status list to gather info
 		for (size_t i = 0, count = git_status_list_entrycount(list); i < count; ++i) {
 			const git_status_entry* entry = git_status_byindex(list, i);
