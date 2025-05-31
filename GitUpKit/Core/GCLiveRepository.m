@@ -640,11 +640,22 @@ cleanup:
 	);
 	
 	NSArray<NSString*>* allPathsToWrite = [modifiedPaths arrayByAddingObjectsFromArray:[deletedPaths arrayByAddingObjectsFromArray:renameInvolvingConflictPaths]];
-	
+  float writtenFileCountRatio = (float)[allPathsToWrite count] / (float)[_workingDirectoryContent entryCount];
+  
   // Write working directory
   // This also writes these same files to the workdir index, but we'll overwrite it immediately with `newWorkingDirectoryIndex`.
-  if (![self checkoutIndex:newWorkingDirectoryIndex withOptions:kGCCheckoutOption_Force | kGCCheckoutOption_RemoveUntrackedFiles error:error]) {
-    return NO;
+  if (writtenFileCountRatio <= 0.1) {
+    // Write index, telling libgit2 what paths have changed
+    // Fast when there are few paths. But, libgit2 iterates over the closest common ancestor of the provided paths, which can get slow quickly, presumably in some exponential manner. Tests indicate a 10% ratio is a good switchover point.
+    // Reliably extremely fast for 0 and 1 paths.
+    if (![self checkoutFilesToWorkingDirectory:allPathsToWrite fromIndex:newWorkingDirectoryIndex error:error]) {
+      return NO;
+    }
+  } else {
+    // Write index, letting libgit2 discover what to change
+    if (![self checkoutIndex:newWorkingDirectoryIndex withOptions:kGCCheckoutOption_Force | kGCCheckoutOption_RemoveUntrackedFiles error:error]) {
+      return NO;
+    }
   }
   
   // Check that cache won't contain ignored files
