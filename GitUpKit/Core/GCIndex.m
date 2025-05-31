@@ -688,12 +688,12 @@ cleanup:
 	}
 	
   git_checkout_options options = GIT_CHECKOUT_OPTIONS_INIT;
-  options.checkout_strategy = GIT_CHECKOUT_FORCE;
+  options.checkout_strategy = GIT_CHECKOUT_FORCE | GIT_CHECKOUT_DISABLE_PATHSPEC_MATCH;
   options.paths.count = paths.count;
   char** pathStrings = malloc(paths.count * sizeof(char*));
   options.paths.strings = pathStrings;
   for (NSUInteger i = 0; i < paths.count; i++) {
-    const char* filePath = GCGitPathFromFileSystemPath([NSRegularExpression escapedPatternForString:paths[i]]);
+    const char* filePath = GCGitPathFromFileSystemPath(paths[i]);
     options.paths.strings[i] = (char*)filePath;
   }
 
