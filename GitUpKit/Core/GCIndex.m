@@ -291,6 +291,53 @@ static inline BOOL _EqualConflicts(GCIndexConflict* conflict1, GCIndexConflict* 
   git_index_conflict_iterator_free(iterator);
 }
 
+static inline BOOL _EqualIndexes(GCIndex* index1, GCIndex* index2) {
+  size_t count1 = git_index_entrycount(index1.private);
+  size_t count2 = git_index_entrycount(index2.private);
+  
+  if (count1 != count2) {
+    return NO;
+  }
+  
+  for (size_t i = 0; i < count1; ++i) {
+    const git_index_entry* entry1 = git_index_get_byindex(index1.private, i);
+    const git_index_entry* entry2 = git_index_get_byindex(index2.private, i);
+    
+    if (
+        // These properties are just a cache
+        // ctime
+        // mtime
+        // dev
+        // ino
+        // mode
+        // uid
+        // gid
+        // file_size
+
+        // These properties are meaningful
+        !git_oid_equal(&entry1->id, &entry2->id)
+        || entry1->flags != entry2->flags
+        || entry1->flags_extended != entry2->flags_extended
+        || !!strcmp(entry1->path, entry2->path)
+    ) {
+      return NO;
+    }
+  }
+
+  return YES;
+}
+
+- (BOOL)isEqualToIndex:(GCIndex*)index {
+  return (self == index) || _EqualIndexes(self, index);
+}
+
+- (BOOL)isEqual:(id)object {
+  if (![object isMemberOfClass:[GCIndex class]]) {
+    return NO;
+  }
+  return [self isEqualToIndex:object];
+}
+
 - (NSString*)description {
   size_t count = git_index_entrycount(_private);
   NSMutableString* string = [[NSMutableString alloc] initWithFormat:@"%@ (%lu entries)", self.class, count];
