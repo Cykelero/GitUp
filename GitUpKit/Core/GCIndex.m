@@ -317,7 +317,9 @@ static inline BOOL _EqualIndexes(GCIndex* index1, GCIndex* index2) {
         // These properties are meaningful
         !git_oid_equal(&entry1->id, &entry2->id)
         || entry1->flags != entry2->flags
-        || entry1->flags_extended != entry2->flags_extended
+        ||
+          (entry1->flags_extended & GIT_INDEX_ENTRY_EXTENDED_FLAGS) // using mask allows comparing in-memory indexes with non-in-memory
+          != (entry2->flags_extended & GIT_INDEX_ENTRY_EXTENDED_FLAGS)
         || !!strcmp(entry1->path, entry2->path)
     ) {
       return NO;
