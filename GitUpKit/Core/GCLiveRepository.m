@@ -494,19 +494,19 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
 }
 
 - (void)updateWorkingDirectoryCache {
-	BOOL success = NO;
-	NSError* theError = nil;
-	NSError* __strong* error = &theError; // allows usage of CALL_LIBGIT2_FUNCTION_GOTO
-	
-	git_status_list* list = NULL;
+  BOOL success = NO;
+  NSError* theError = nil;
+  NSError* __strong* error = &theError; // allows usage of CALL_LIBGIT2_FUNCTION_GOTO
+  
+  git_status_list* list = NULL;
   
   GCIndex* workingDirectoryContent = nil;
   
   GCIndex* repositoryIndex = nil;
   GCIndex* initialRepositoryIndex = nil;
-    
+  
   NSMutableArray* existingIgnoredPaths = [[NSMutableArray alloc] init];
-	
+  
   // Start measuring execution duration
   CFAbsoluteTime startTime = CFAbsoluteTimeGetCurrent();
   
@@ -515,117 +515,119 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
   git_status_options options = GIT_STATUS_OPTIONS_INIT;
   options.show = GIT_STATUS_SHOW_WORKDIR_ONLY;
   options.flags =
-    GIT_STATUS_OPT_INCLUDE_UNTRACKED
-    | GIT_STATUS_OPT_RECURSE_UNTRACKED_DIRS
-    | GIT_STATUS_OPT_INCLUDE_IGNORED
-    | GIT_STATUS_OPT_UPDATE_INDEX;
+  GIT_STATUS_OPT_INCLUDE_UNTRACKED
+  | GIT_STATUS_OPT_RECURSE_UNTRACKED_DIRS
+  | GIT_STATUS_OPT_INCLUDE_IGNORED
+  | GIT_STATUS_OPT_UPDATE_INDEX;
   
   CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_status_list_new, &list, self.private, &options);
   
-	// Prepare
-	// // TODO: We might be able to avoid writing to the repo's index by calling git_index_add instead of git_index_add_bypath: https://stackoverflow.com/a/57952919
-	repositoryIndex = [self readRepositoryIndex:&theError]; // this is where we build up the new cache
-	initialRepositoryIndex = [self createInMemoryCopyOfIndex:repositoryIndex error:&theError]; // so that we can restore it afterwards
-	
-	// Create and iterate status list
-	if (repositoryIndex != nil && initialRepositoryIndex != nil && theError == nil) { // only if init went well
-		// Iterate on status list to gather info
-		for (size_t i = 0, count = git_status_list_entrycount(list); i < count; ++i) {
-			const git_status_entry* entry = git_status_byindex(list, i);
-			const char* newFilePath;
-			
-			switch (entry->status) {
-				case GIT_STATUS_WT_NEW:
-				case GIT_STATUS_WT_MODIFIED:
-				case GIT_STATUS_WT_TYPECHANGE:
-					newFilePath = entry->index_to_workdir->new_file.path;
-					
-					// Ignored Git folder? (this isn't necessarily a submodule; it could be a Git folder in an ignored folder)
-					if (newFilePath[strlen(newFilePath) - 1] == '/') {
-						// Add to ignored paths, don't add to index
-						[existingIgnoredPaths addObject:[NSString stringWithUTF8String:newFilePath]];
-						continue;
-					}
-					
-					// Submodule?
-					if (entry->index_to_workdir->new_file.mode == GIT_FILEMODE_COMMIT) {
-						// Ignore (not yet supported)
-						// Because of how this method works (it relies on a diff), the submodule WILL be included in the workdir cache if it is staged when refreshing the cache. This is fine.
-						continue;
-					}
-					
-					// Add to index
-					CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_index_add_bypath, repositoryIndex.private, newFilePath);
-					break;
-					
-				case GIT_STATUS_IGNORED:
-					newFilePath = entry->index_to_workdir->new_file.path;
-					
-					// Add to ignored paths
-					[existingIgnoredPaths addObject:[NSString stringWithUTF8String:newFilePath]];
-					break;
-					
-				case GIT_STATUS_WT_DELETED:
-					CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_index_remove_bypath, repositoryIndex.private, entry->index_to_workdir->old_file.path);
-					break;
-					
-				case GIT_STATUS_CONFLICTED:
-					newFilePath = entry->index_to_workdir->new_file.path;
-					
-					// Add to index (replace conflict with concrete file from workdir)
-					// Equivalent to a regular CALL_LIBGIT2_FUNCTION_GOTO call, except doesn't error if the file doesn't exist
-					int addByPathReturn = git_index_add_bypath(repositoryIndex.private, newFilePath);
-					CHECK_LIBGIT2_FUNCTION_CALL(goto cleanup, addByPathReturn, == GIT_OK || addByPathReturn == GIT_ENOTFOUND);
-					
-					if (addByPathReturn == GIT_ENOTFOUND) {
-						// But, if the file doesn't exist, we do need to remove it from the index
-						[self removeEntry:[NSString stringWithUTF8String:newFilePath] fromIndex:repositoryIndex failIfMissing:true error:&theError];
-					}
-					break;
-					
-				default:
-					XLOG_DEBUG_UNREACHABLE();
-					break;
-			}
-		}
-		
-		// Check for errors before writing repository index
-		if (theError != nil) {
-			goto cleanup;
-		}
-		
-		// Create in-memory index from repository index
-		workingDirectoryContent = [self createInMemoryCopyOfIndex:repositoryIndex error:&theError];
-		
-		// Restore repository index
-		[self resetRepositoryIndexToIndex:initialRepositoryIndex error:&theError];
-		
-		// Final error check
-		if (theError != nil) {
-			goto cleanup;
-		}
-		
-		success = YES;
-	}
-	
-	// Finish up
+  // Prepare
+  // // TODO: We might be able to avoid writing to the repo's index by calling git_index_add instead of git_index_add_bypath: https://stackoverflow.com/a/57952919
+  repositoryIndex = [self readRepositoryIndex:&theError]; // this is where we build up the new cache
+  initialRepositoryIndex = [self createInMemoryCopyOfIndex:repositoryIndex error:&theError]; // so that we can restore it afterwards
+  
+  // Check for errors so far
+  if (repositoryIndex == nil || initialRepositoryIndex == nil || theError != nil) {
+    goto cleanup;
+  }
+  
+  // Iterate on status list to gather info
+  for (size_t i = 0, count = git_status_list_entrycount(list); i < count; ++i) {
+    const git_status_entry* entry = git_status_byindex(list, i);
+    const char* newFilePath;
+    
+    switch (entry->status) {
+      case GIT_STATUS_WT_NEW:
+      case GIT_STATUS_WT_MODIFIED:
+      case GIT_STATUS_WT_TYPECHANGE:
+        newFilePath = entry->index_to_workdir->new_file.path;
+        
+        // Ignored Git folder? (this isn't necessarily a submodule; it could be a Git folder in an ignored folder)
+        if (newFilePath[strlen(newFilePath) - 1] == '/') {
+          // Add to ignored paths, don't add to index
+          [existingIgnoredPaths addObject:[NSString stringWithUTF8String:newFilePath]];
+          continue;
+        }
+        
+        // Submodule?
+        if (entry->index_to_workdir->new_file.mode == GIT_FILEMODE_COMMIT) {
+          // Ignore (not yet supported)
+          // Because of how this method works (it relies on a diff), the submodule WILL be included in the workdir cache if it is staged when refreshing the cache. This is fine.
+          continue;
+        }
+        
+        // Add to index
+        CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_index_add_bypath, repositoryIndex.private, newFilePath);
+        break;
+        
+      case GIT_STATUS_IGNORED:
+        newFilePath = entry->index_to_workdir->new_file.path;
+        
+        // Add to ignored paths
+        [existingIgnoredPaths addObject:[NSString stringWithUTF8String:newFilePath]];
+        break;
+        
+      case GIT_STATUS_WT_DELETED:
+        CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_index_remove_bypath, repositoryIndex.private, entry->index_to_workdir->old_file.path);
+        break;
+        
+      case GIT_STATUS_CONFLICTED:
+        newFilePath = entry->index_to_workdir->new_file.path;
+        
+        // Add to index (replace conflict with concrete file from workdir)
+        // Equivalent to a regular CALL_LIBGIT2_FUNCTION_GOTO call, except doesn't error if the file doesn't exist
+        int addByPathReturn = git_index_add_bypath(repositoryIndex.private, newFilePath);
+        CHECK_LIBGIT2_FUNCTION_CALL(goto cleanup, addByPathReturn, == GIT_OK || addByPathReturn == GIT_ENOTFOUND);
+        
+        if (addByPathReturn == GIT_ENOTFOUND) {
+          // But, if the file doesn't exist, we do need to remove it from the index
+          [self removeEntry:[NSString stringWithUTF8String:newFilePath] fromIndex:repositoryIndex failIfMissing:true error:&theError];
+        }
+        break;
+        
+      default:
+        XLOG_DEBUG_UNREACHABLE();
+        break;
+    }
+  }
+  
+  // Check for errors before writing repository index
+  if (theError != nil) {
+    goto cleanup;
+  }
+  
+  // Create in-memory index from repository index
+  workingDirectoryContent = [self createInMemoryCopyOfIndex:repositoryIndex error:&theError];
+  
+  // Restore repository index
+  [self resetRepositoryIndexToIndex:initialRepositoryIndex error:&theError];
+  
+  // Final error check
+  if (theError != nil) {
+    goto cleanup;
+  }
+  
+  success = YES;
+  
+  // Finish up
 cleanup:
-	git_status_list_free(list);
-	
-	if (success) {
-		_workingDirectoryContent = workingDirectoryContent;
-		_existingIgnoredPaths = existingIgnoredPaths;
-		_workingDirectoryContentUpdateError = nil;
-		
-		if ([self.delegate respondsToSelector:@selector(repository:didUpdateWorkingDirectoryCacheInSeconds:)]) {
-			CFAbsoluteTime elapsedSeconds = CFAbsoluteTimeGetCurrent() - startTime;
-			[self.delegate repository:self didUpdateWorkingDirectoryCacheInSeconds:elapsedSeconds];
-		}
-	} else {
-		_workingDirectoryContent = NULL;
-		_existingIgnoredPaths = NULL;
-		_workingDirectoryContentUpdateError = theError;
-	}
+  git_status_list_free(list);
+  
+  if (success) {
+    _workingDirectoryContent = workingDirectoryContent;
+    _existingIgnoredPaths = existingIgnoredPaths;
+    _workingDirectoryContentUpdateError = nil;
+    
+    if ([self.delegate respondsToSelector:@selector(repository:didUpdateWorkingDirectoryCacheInSeconds:)]) {
+      CFAbsoluteTime elapsedSeconds = CFAbsoluteTimeGetCurrent() - startTime;
+      [self.delegate repository:self didUpdateWorkingDirectoryCacheInSeconds:elapsedSeconds];
+    }
+  } else {
+    _workingDirectoryContent = NULL;
+    _existingIgnoredPaths = NULL;
+    _workingDirectoryContentUpdateError = theError;
+  }
 }
 
 
