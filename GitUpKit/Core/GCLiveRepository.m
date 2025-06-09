@@ -28,8 +28,7 @@
 
 #import "XLFacilityMacros.h"
 
-#define kFSLatency 0.5
-#define kUpdateLatency 0.5
+#define kFSLatency 0.1 // helps ensure we refresh only once FS state is consistent
 
 #define kMaxSnapshots 100
 #define kSnapshotsFileName @"snapshots.data"
@@ -37,7 +36,7 @@
 #define kSnapshotKey_Reason @"reason"  // NSString
 #define kSnapshotKey_Argument @"argument"  // id<NSCoding>
 
-#define kAutomaticSnapshotDelay (5 - kFSLatency - kUpdateLatency)
+#define kAutomaticSnapshotDelay 4
 
 #define kCommitDatabaseFileName @"cache.db"
 
@@ -67,6 +66,7 @@ static _Atomic int32_t _allocatedCount = ATOMIC_VAR_INIT(0);
   FSEventStreamRef _workingDirectoryStream;
   BOOL _workingDirectoryChanged;
   CFRunLoopTimerRef _updateTimer;  // Can't use a NSTimer because of retain-cycle
+  CFAbsoluteTime _timerLastFireTime;
   GCRepositoryState _state;
   NSInteger _historyUpdatesSuspended;
   BOOL _historyUpdatePending;
@@ -107,6 +107,7 @@ static _Atomic int32_t _allocatedCount = ATOMIC_VAR_INIT(0);
 #endif
 
 - (void)_timer:(CFRunLoopTimerRef)timer {
+  _timerLastFireTime = CFAbsoluteTimeGetCurrent();
   if (timer == _updateTimer) {
     [self _notifyWorkingDirectoryChanged:_workingDirectoryChanged gitDirectoryChanged:_gitDirectoryChanged];
     _workingDirectoryChanged = NO;
@@ -125,6 +126,7 @@ static void _TimerCallBack(CFRunLoopTimerRef timer, void* info) {
 }
 
 - (void)_stream:(ConstFSEventStreamRef)stream didReceiveEvents:(size_t)numEvents withPaths:(void*)eventPaths flags:(const FSEventStreamEventFlags*)eventFlags {
+  CFAbsoluteTime earliestAllowedFireDate = MAX(CFAbsoluteTimeGetCurrent() + 0.001, _timerLastFireTime + _minUpdateInterval);
   for (size_t i = 0; i < numEvents; ++i) {
     const char* path = ((const char**)eventPaths)[i];
     if (eventFlags[i] & kFSEventStreamEventFlagMustScanSubDirs) {
@@ -141,7 +143,7 @@ static void _TimerCallBack(CFRunLoopTimerRef timer, void* info) {
           if (!subPath[0] || !strncmp(subPath, "refs/", 5) || !strncmp(subPath, "logs/", 5)) {  // We only care about ".git/", ".git/refs/*" and ".git/logs/*"
             XLOG_DEBUG(@"Processed file system event for '%s'", path);
             _gitDirectoryChanged = YES;
-            CFRunLoopTimerSetNextFireDate(_updateTimer, CFAbsoluteTimeGetCurrent() + kUpdateLatency);
+            CFRunLoopTimerSetNextFireDate(_updateTimer, earliestAllowedFireDate);
           } else {
             XLOG_DEBUG(@"Dropped file system event for '%s'", path);
           }
@@ -158,7 +160,7 @@ static void _TimerCallBack(CFRunLoopTimerRef timer, void* info) {
           if (!ignored) {
             XLOG_DEBUG(@"Processed file system event for '%s'", path);
             _workingDirectoryChanged = YES;
-            CFRunLoopTimerSetNextFireDate(_updateTimer, CFAbsoluteTimeGetCurrent() + kUpdateLatency);
+            CFRunLoopTimerSetNextFireDate(_updateTimer, earliestAllowedFireDate);
           } else {
             XLOG_DEBUG(@"Dropped file system event for '%s'", path);
           }
@@ -204,6 +206,8 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
     _diffWhitespaceMode = kGCLiveRepositoryDiffWhitespaceMode_Normal;
     _diffMaxInterHunkLines = 0;
     _diffMaxContextLines = 3;
+    _timerLastFireTime = 0;
+    _minUpdateInterval = 1 - kFSLatency;
 
     _state = [super state];
 
@@ -314,11 +318,14 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
 }
 
 - (void)flushUpdateTimer {
-	CFAbsoluteTime updateTimerNextFireDate = CFRunLoopTimerGetNextFireDate(_updateTimer);
-	CFAbsoluteTime updateTimerScheduledThreshold = CFAbsoluteTimeGetCurrent() + kUpdateLatency + 1; // it's never scheduled farther in advance than kUpdateLatency
+  CFAbsoluteTime updateTimerNextFireDate = CFRunLoopTimerGetNextFireDate(_updateTimer);
+  CFAbsoluteTime updateTimerScheduledThreshold =
+    CFAbsoluteTimeGetCurrent()
+    + 100; // arbitrary, but must be larger than any previous (or current) value of _updateLatency
 	
-	if (updateTimerNextFireDate < updateTimerScheduledThreshold) {
-		[self _timer:_updateTimer];
+  if (updateTimerNextFireDate < updateTimerScheduledThreshold) {
+    [self _timer:_updateTimer];
+    CFRunLoopTimerSetNextFireDate(_updateTimer, HUGE_VALF);
 	}
 }
 
