@@ -107,6 +107,7 @@ extern NSString* const GCLiveRepositoryAmendOperationReason;
 																		 stage:(GCIndex*)newStageIndex
 																		 error:(NSError**)error
 													diffIndexesBlock:(GCDiffIndexesBlock)diffIndexesBlock;
+@property(nonatomic) BOOL workingDirectoryThresholdsEnabled;
 
 @property(nonatomic, getter=areSnapshotsEnabled) BOOL snapshotsEnabled;  // Default is NO - Should be enabled *after* setting delegate so any error can be received
 @property(nonatomic, getter=areAutomaticSnapshotsEnabled) BOOL automaticSnapshotsEnabled;  // Requires @snapshotsEnabled to be YES
