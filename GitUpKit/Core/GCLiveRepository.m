@@ -65,6 +65,7 @@ static _Atomic int32_t _allocatedCount = ATOMIC_VAR_INIT(0);
   BOOL _gitDirectoryChanged;
   FSEventStreamRef _workingDirectoryStream;
   BOOL _workingDirectoryChanged;
+  BOOL _workingDirectoryDiffSizeExceedsThreshold;
   CFRunLoopTimerRef _updateTimer;  // Can't use a NSTimer because of retain-cycle
   CFAbsoluteTime _timerLastFireTime;
   GCRepositoryState _state;
@@ -208,10 +209,11 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
     _diffMaxContextLines = 3;
     _timerLastFireTime = 0;
     _minUpdateInterval = 1 - kFSLatency;
+    _workingDirectoryDiffSizeExceedsThreshold = NO;
 
     _state = [super state];
 
-    [self updateWorkingDirectoryCache];
+    [self updateWorkingDirectoryCacheResettingFuses:YES];
 
     CFAbsoluteTime time = CFAbsoluteTimeGetCurrent();
     _history = [self loadHistoryUsingSorting:[self.class historySorting] error:error];
@@ -277,7 +279,7 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
 
 - (void)_notifyWorkingDirectoryChanged:(BOOL)workingDirectoryChanged gitDirectoryChanged:(BOOL)gitDirectoryChanged {
   if (workingDirectoryChanged) {
-		[self updateWorkingDirectoryCache];
+    [self updateWorkingDirectoryCacheResettingFuses:YES];
 
     if (_statusMode != kGCLiveRepositoryStatusMode_Disabled) {
       [self _updateStatus:YES];
@@ -493,7 +495,9 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
   }
 }
 
-- (void)updateWorkingDirectoryCache {
+- (void)updateWorkingDirectoryCacheResettingFuses:(BOOL)resetFuses {
+  // Optimizing this method for large files (or possibly many changed files): before diffing the workdir to the index, replace the index with our cache of the workdir. This might be possible to do efficiently by diffing the two, and only copying the entries that differ; taking care in copying the workdir cache data as well.
+  
   BOOL success = NO;
   NSError* theError = nil;
   NSError* __strong* error = &theError; // allows usage of CALL_LIBGIT2_FUNCTION_GOTO
@@ -532,17 +536,63 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
     goto cleanup;
   }
   
-  // Iterate on status list to gather info
+  // Abort if too many changes
+  const int maximumEntryCount = 7000; // 5 secs for tiny files on M1 Pro MBP
+  const int maximumTotalEntrySize = 172413793; // ~172MB. 5 secs on M1 Pro MBP
+  
+  // // Remember if we previously had to abort
+  if (resetFuses) {
+    _workingDirectoryDiffSizeExceedsThreshold = NO;
+  }
+  
+  if (_workingDirectoryDiffSizeExceedsThreshold) {
+    *error = GCNewError(kGCErrorCode_Retcon_ThresholdExceeded, @"Total status entry size too large when updating working directory");
+    goto cleanup;
+  }
+  
+  // // Count all relevant entries (ignored paths are very cheap to process), and abort with an error if there's too many.
+  int relevantEntryCount = 0;
   for (size_t i = 0, count = git_status_list_entrycount(list); i < count; ++i) {
     const git_status_entry* entry = git_status_byindex(list, i);
-    const char* newFilePath;
+    
+    if (entry->status != GIT_STATUS_IGNORED) {
+      relevantEntryCount++;
+      
+      if (relevantEntryCount > maximumEntryCount) {
+        *error = GCNewError(kGCErrorCode_Retcon_ThresholdExceeded, @"Too many status entries when updating working directory");
+        goto cleanup;
+      }
+    }
+  }
+  
+  // Iterate on status list to gather info
+  uint64 accumulatedEntrySize = 0;
+  for (size_t i = 0, count = git_status_list_entrycount(list); i < count; ++i) {
+    const git_status_entry* entry = git_status_byindex(list, i);
+    const char* newFilePath = entry->index_to_workdir->new_file.path; // can be nil
+    
+    if (newFilePath) {
+      // Count file size towards limit, and check
+      NSString* newFileAbsolutePath = [self absolutePathForFile:GCFileSystemPathFromGitPath(newFilePath)];
+      struct stat newFileStats;
+      if (!lstat([newFileAbsolutePath UTF8String], &newFileStats)) {
+        accumulatedEntrySize += newFileStats.st_size;
+        
+        if (accumulatedEntrySize > maximumTotalEntrySize) {
+          // Too big. Restore repository index and abort.
+          [self resetRepositoryIndexToIndex:initialRepositoryIndex error:&theError];
+          
+          _workingDirectoryDiffSizeExceedsThreshold = YES; // getting to this point can be slow, so remember
+          *error = GCNewError(kGCErrorCode_Retcon_ThresholdExceeded, @"Total status entry size too large when updating working directory");
+          goto cleanup;
+        }
+      }
+    }
     
     switch (entry->status) {
       case GIT_STATUS_WT_NEW:
       case GIT_STATUS_WT_MODIFIED:
       case GIT_STATUS_WT_TYPECHANGE:
-        newFilePath = entry->index_to_workdir->new_file.path;
-        
         // Ignored Git folder? (this isn't necessarily a submodule; it could be a Git folder in an ignored folder)
         if (newFilePath[strlen(newFilePath) - 1] == '/') {
           // Add to ignored paths, don't add to index
@@ -694,7 +744,7 @@ cleanup:
 	
 	if (someGitignoreFileChanged) {
 		// Reload the whole cache from disk
-		[self updateWorkingDirectoryCache];
+    [self updateWorkingDirectoryCacheResettingFuses:YES];
 		
 		// This is the slow, simple way.
 		// To do this better:

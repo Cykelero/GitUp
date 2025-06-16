@@ -99,7 +99,7 @@ extern NSString* const GCLiveRepositoryAmendOperationReason;
 - (void)suspendHistoryUpdates;  // Nestable
 - (void)resumeHistoryUpdates;  // Nestable
 /// Reloads `workingDirectoryContent` and `existingIgnoredPaths` from disk. Automatically called when changes are performed by another process.
-- (void)updateWorkingDirectoryCache;
+- (void)updateWorkingDirectoryCacheResettingFuses:(BOOL)resetThresholdFuse;
 /// Writes the working directory and updates the cache.
 ///
 /// Overwrites the working directory and index with the provided values. Updates `workingDirectoryContent` and `existingIgnoredPaths`.

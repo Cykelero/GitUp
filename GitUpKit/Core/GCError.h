@@ -16,6 +16,7 @@
 #import <Foundation/Foundation.h>
 
 typedef NS_ENUM(NSInteger, GCErrorCode) {
+  kGCErrorCode_Retcon_ThresholdExceeded = 101,
   kGCErrorCode_SubmoduleUninitialized = 3,
   kGCErrorCode_RepositoryDirty = 2,
   kGCErrorCode_Generic = 1,
