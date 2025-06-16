@@ -209,6 +209,7 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
     _diffMaxContextLines = 3;
     _timerLastFireTime = 0;
     _minUpdateInterval = 1 - kFSLatency;
+    _workingDirectoryThresholdsEnabled = YES;
     _workingDirectoryDiffSizeExceedsThreshold = NO;
 
     _state = [super state];
@@ -545,22 +546,24 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
     _workingDirectoryDiffSizeExceedsThreshold = NO;
   }
   
-  if (_workingDirectoryDiffSizeExceedsThreshold) {
+  if (_workingDirectoryDiffSizeExceedsThreshold && _workingDirectoryThresholdsEnabled) {
     *error = GCNewError(kGCErrorCode_Retcon_ThresholdExceeded, @"Total status entry size too large when updating working directory");
     goto cleanup;
   }
   
   // // Count all relevant entries (ignored paths are very cheap to process), and abort with an error if there's too many.
-  int relevantEntryCount = 0;
-  for (size_t i = 0, count = git_status_list_entrycount(list); i < count; ++i) {
-    const git_status_entry* entry = git_status_byindex(list, i);
-    
-    if (entry->status != GIT_STATUS_IGNORED) {
-      relevantEntryCount++;
+  if (_workingDirectoryThresholdsEnabled) {
+    int relevantEntryCount = 0;
+    for (size_t i = 0, count = git_status_list_entrycount(list); i < count; ++i) {
+      const git_status_entry* entry = git_status_byindex(list, i);
       
-      if (relevantEntryCount > maximumEntryCount) {
-        *error = GCNewError(kGCErrorCode_Retcon_ThresholdExceeded, @"Too many status entries when updating working directory");
-        goto cleanup;
+      if (entry->status != GIT_STATUS_IGNORED) {
+        relevantEntryCount++;
+        
+        if (relevantEntryCount > maximumEntryCount) {
+          *error = GCNewError(kGCErrorCode_Retcon_ThresholdExceeded, @"Too many status entries when updating working directory");
+          goto cleanup;
+        }
       }
     }
   }
@@ -571,7 +574,7 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
     const git_status_entry* entry = git_status_byindex(list, i);
     const char* newFilePath = entry->index_to_workdir->new_file.path; // can be nil
     
-    if (newFilePath) {
+    if (newFilePath && _workingDirectoryThresholdsEnabled) {
       // Count file size towards limit, and check
       NSString* newFileAbsolutePath = [self absolutePathForFile:GCFileSystemPathFromGitPath(newFilePath)];
       struct stat newFileStats;
@@ -930,6 +933,12 @@ cleanup:
     }
     [[NSNotificationCenter defaultCenter] postNotificationName:GCLiveRepositorySnapshotsDidUpdateNotification object:self];
   }
+}
+
+- (void)setWorkingDirectoryThresholdsEnabled:(BOOL)flag {
+  _workingDirectoryThresholdsEnabled = flag;
+  [self updateWorkingDirectoryCacheResettingFuses:YES];
+  [[NSNotificationCenter defaultCenter] postNotificationName:GCLiveRepositoryWorkingDirectoryDidChangeNotification object:self];
 }
 
 - (BOOL)areSnapshotsEnabled {
