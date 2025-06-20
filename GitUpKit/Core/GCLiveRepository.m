@@ -497,7 +497,7 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
 }
 
 - (void)updateWorkingDirectoryCacheResettingFuses:(BOOL)resetFuses {
-  // Optimizing this method for large files (or possibly many changed files): before diffing the workdir to the index, replace the index with our cache of the workdir. This might be possible to do efficiently by diffing the two, and only copying the entries that differ; taking care in copying the workdir cache data as well.
+  // NOTE: We might be able to avoid writing to the repo's index by using git_index_add instead of git_index_add_bypath, although that would likely require modifying libgit2. That would both reduce side-effects (no index change), improve performance noticeably, and simplify the code (no need to smartly reload last cache, and to restore the repo index). Make sure to preserve stat cache. See: https://stackoverflow.com/a/57952919
   
   BOOL success = NO;
   NSError* theError = nil;
@@ -512,30 +512,36 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
   
   NSMutableArray* existingIgnoredPaths = [[NSMutableArray alloc] init];
   
-  // Start measuring execution duration
+  // Prepare
   CFAbsoluteTime startTime = CFAbsoluteTimeGetCurrent();
   
-  // Create status list
-  // Must be done before capturing the current index, so that the stat cache update isn't reverted.
-  git_status_options options = GIT_STATUS_OPTIONS_INIT;
-  options.show = GIT_STATUS_SHOW_WORKDIR_ONLY;
-  options.flags =
-  GIT_STATUS_OPT_INCLUDE_UNTRACKED
-  | GIT_STATUS_OPT_RECURSE_UNTRACKED_DIRS
-  | GIT_STATUS_OPT_INCLUDE_IGNORED
-  | GIT_STATUS_OPT_UPDATE_INDEX;
+  repositoryIndex = [self readRepositoryIndex:&theError]; // the new cache will be read into the workdir index
+  initialRepositoryIndex = [self createInMemoryCopyOfIndex:repositoryIndex error:&theError]; // this allows restoring the workdir index afterwards
   
-  CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_status_list_new, &list, self.private, &options);
-  
-  // Prepare
-  // // TODO: We might be able to avoid writing to the repo's index by calling git_index_add instead of git_index_add_bypath: https://stackoverflow.com/a/57952919
-  repositoryIndex = [self readRepositoryIndex:&theError]; // this is where we build up the new cache
-  initialRepositoryIndex = [self createInMemoryCopyOfIndex:repositoryIndex error:&theError]; // so that we can restore it afterwards
-  
-  // Check for errors so far
   if (repositoryIndex == nil || initialRepositoryIndex == nil || theError != nil) {
     goto cleanup;
   }
+  
+  git_status_options options = GIT_STATUS_OPTIONS_INIT;
+  options.show = GIT_STATUS_SHOW_WORKDIR_ONLY;
+  options.flags =
+    GIT_STATUS_OPT_INCLUDE_UNTRACKED
+    | GIT_STATUS_OPT_RECURSE_UNTRACKED_DIRS
+    | GIT_STATUS_OPT_INCLUDE_IGNORED
+    | GIT_STATUS_OPT_UPDATE_INDEX;
+  
+  // Load current cache into workdir index
+  // Using the current cache as a starting point helps performance (avoids re-reading large files). It's optional, though, as the final result will be the same.
+  if (_workingDirectoryContent && _workingDirectoryContentUpdateError == nil) {
+    [self resetRepositoryIndexToIndex:_workingDirectoryContent error:&theError];
+    
+    if (theError != nil) {
+      goto cleanup;
+    }
+  }
+  
+  // Create status list
+  CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_status_list_new, &list, self.private, &options);
   
   // Abort if too many changes
   const int maximumEntryCount = 7000; // 5 secs for tiny files on M1 Pro MBP
@@ -568,7 +574,56 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
     }
   }
   
-  // Iterate on status list to gather info
+  // Update cache index
+  // // First, delete any now-ignored files from the index
+  // // Only if a gitignore file changed, which could have caused currently-cached files to now be ignored. The status list would NOT return any change for these.
+  BOOL someGitignoreFileChanged = NO;
+  
+  for (size_t i = 0, count = git_status_list_entrycount(list); i < count; ++i) {
+    const git_status_entry* entry = git_status_byindex(list, i);
+    
+    const char* filePath = entry->index_to_workdir->new_file.path;
+    
+    if (!filePath) {
+      filePath = entry->index_to_workdir->old_file.path;
+    }
+    
+    if (!filePath) {
+      continue;
+    }
+    
+    if ([[[NSString stringWithCString:filePath] lastPathComponent] isEqualToString:@".gitignore"]) {
+      someGitignoreFileChanged = YES;
+      break;
+    }
+  }
+  
+  if (someGitignoreFileChanged) {
+    // List now-ignored paths
+    NSMutableArray* pathsToRemove = [[NSMutableArray alloc] init];
+    
+    [repositoryIndex enumerateFilesUsingBlock:^(NSString* path, GCFileMode mode, NSString* sha1, BOOL* stop) {
+      int ignored = 0;
+      int status = git_ignore_path_is_ignored(&ignored, self.private, GCGitPathFromFileSystemPath(path));
+      CHECK_LIBGIT2_FUNCTION_CALL(stop = YES, status, == GIT_OK);
+      
+      if (ignored) {
+        [pathsToRemove addObject:path];
+      }
+    }];
+    
+    // Remove them from index, and add them to existingIgnoredPaths
+    for (id pathToRemove in pathsToRemove) {
+      [self removeEntry:pathToRemove fromIndex:repositoryIndex failIfMissing:YES error:&error];
+      [existingIgnoredPaths addObject:pathToRemove];
+    }
+    
+    if (theError != nil) {
+      goto cleanup;
+    }
+  }
+  
+  // // Then, iterate on status list to incorporate changes
   uint64 accumulatedEntrySize = 0;
   for (size_t i = 0, count = git_status_list_entrycount(list); i < count; ++i) {
     const git_status_entry* entry = git_status_byindex(list, i);
@@ -606,7 +661,6 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
         // Submodule?
         if (entry->index_to_workdir->new_file.mode == GIT_FILEMODE_COMMIT) {
           // Ignore (not yet supported)
-          // Because of how this method works (it relies on a diff), the submodule WILL be included in the workdir cache if it is staged when refreshing the cache. This is fine.
           continue;
         }
         
@@ -615,8 +669,6 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
         break;
         
       case GIT_STATUS_IGNORED:
-        newFilePath = entry->index_to_workdir->new_file.path;
-        
         // Add to ignored paths
         [existingIgnoredPaths addObject:[NSString stringWithUTF8String:newFilePath]];
         break;
@@ -626,8 +678,6 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
         break;
         
       case GIT_STATUS_CONFLICTED:
-        newFilePath = entry->index_to_workdir->new_file.path;
-        
         // Add to index (replace conflict with concrete file from workdir)
         // Equivalent to a regular CALL_LIBGIT2_FUNCTION_GOTO call, except doesn't error if the file doesn't exist
         int addByPathReturn = git_index_add_bypath(repositoryIndex.private, newFilePath);
