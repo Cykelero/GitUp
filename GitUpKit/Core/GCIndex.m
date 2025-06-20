@@ -414,21 +414,25 @@ static inline BOOL _EqualIndexes(GCIndex* index1, GCIndex* index2) {
     }
   }
   
-	// Clear repository index
-	[self clearIndex:repositoryIndex error:error];
-	
-	if (*error != nil || !repositoryIndex) {
-		return NO;
-	}
-	
-	// Copy all entries from source index
-	[sourceIndex enumerateFilesUsingBlock:^(NSString* path, GCFileMode mode, NSString* sha1, BOOL* stop) {
-		[self copyFile:path fromOtherIndex:sourceIndex toIndex:repositoryIndex error:error];
-	}];
-	
-	[sourceIndex enumerateConflictsUsingBlock:^(GCIndexConflict* conflict, BOOL* stop) {
-		[self copyConflict:conflict.path fromOtherIndex:sourceIndex toIndex:repositoryIndex error:error];
-	}];
+  // Sync all entries from source index to repo index
+  // // First, copy conflicts
+  // // Necessary because “none->conflicting” differences do NOT show up in diffs.
+  [sourceIndex enumerateConflictsUsingBlock:^(GCIndexConflict* conflict, BOOL* stop) {
+    [self copyConflict:conflict.path fromOtherIndex:sourceIndex toIndex:repositoryIndex error:error];
+  }];
+  
+  // // Then, copy all remaining differences
+  GCDiff* repoIndexToSourceIndexDiff = [self diffIndex:sourceIndex
+                                             withIndex:repositoryIndex
+                                           filePattern:nil
+                                               options:0
+                                     maxInterHunkLines:0
+                                       maxContextLines:0
+                                                 error:error];
+  
+  for (GCDiffDelta* delta in repoIndexToSourceIndexDiff.deltas) {
+    [self syncEntry:delta.canonicalPath fromOtherIndex:sourceIndex toIndex:repositoryIndex error:error];
+  }
 	
 	// Write repository index
 	[self writeRepositoryIndex:repositoryIndex error:error];
