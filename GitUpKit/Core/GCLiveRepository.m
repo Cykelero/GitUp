@@ -769,15 +769,6 @@ cleanup:
       return NO;
     }
   }
-  
-  // Check that cache won't contain ignored files
-#if DEBUG && !DEBUG_PROFILE
-  for (NSString* modifiedPath in modifiedPaths) {
-    int fileIsIgnored;
-    CALL_LIBGIT2_FUNCTION_RETURN(NO, git_ignore_path_is_ignored, &fileIsIgnored, self.private, GCGitPathFromFileSystemPath(modifiedPath));
-    NSAssert(!fileIsIgnored, @"The code isn't ready to handle this case: modifying/creating ignored file “%@”. The file will be in the workdir cache, but shouldn't be; and might not be in the existing ignored paths cache.", modifiedPath);
-  }
-#endif
 	
 	// Write index
   // This overwrites the index we just wrote, but preserves the stat cache.
@@ -877,6 +868,16 @@ cleanup:
 		// - For each removed file, remove its path in the list, if it's there.
 		// - For each added file, check with libgit2 (git_ignore_path_is_ignored or similar) if it's ignored. If so, add it to the list (if it's not there already).
 	}
+  
+  // Check that cache doesn't contain ignored files
+  // It's probably fine—and probably happens whenever a committed/staged file has an ignored path.
+#if DEBUG && !DEBUG_PROFILE
+  [_workingDirectoryContent enumerateFilesUsingBlock:^(NSString *path, GCFileMode mode, NSString *sha1, BOOL *stop) {
+    int fileIsIgnored;
+    git_ignore_path_is_ignored(&fileIsIgnored, self.private, GCGitPathFromFileSystemPath(path));
+    NSAssert(!fileIsIgnored, @"The code isn't ready to handle this case: file “%@” is ignored, but in workdir cache. This might have unintended consequences.", path);
+  }];
+#endif
 	
 	return YES;
 }
