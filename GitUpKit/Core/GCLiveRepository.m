@@ -734,9 +734,10 @@ cleanup:
 }
 
 - (BOOL)updatingCacheWriteWorkingDirectory:(GCIndex*)newWorkingDirectoryIndex
-																		 stage:(GCIndex*)newStageIndex
-																		 error:(NSError**)error
-													diffIndexesBlock:(GCDiffIndexesBlock)diffIndexesBlock {
+                                     stage:(GCIndex*)newStageIndex
+             transferWorkdirIndexOwnership:(BOOL)transferWorkdirIndexOwnership
+                                     error:(NSError**)error
+                          diffIndexesBlock:(GCDiffIndexesBlock)diffIndexesBlock {
 	// Get index diff (implementing this in Objective-C would be too much for me)
 	NSArray<NSString*>* modifiedPaths;
 	NSArray<NSString*>* deletedPaths;
@@ -794,9 +795,17 @@ cleanup:
 		// - For the workdir cache: set the cache to a materialized version of the workdir index we just wrote—like is done below, in the “no .gitignore change” path—but then to iterate on all new files, and remove them if their path is ignored (using git_ignore_path_is_ignored or similar).
 		// - For the ignored paths cache: I think I'd have to iterate over every single known file (present in either current workdir cache, or in new workdir index, or in current ignored paths cache) and check its ignored status with libgit2, and add/remove it from the ignored paths list accordingly.
 	} else {
-		// Replace working directory cache with provided index
-		// Creates a copy of the provided index, but with materialized conflicts: for each conflict, reads its files from the workdir into the workdir cache.
-		GCIndex* processedIndex = [self createInMemoryCopyOfIndex:newWorkingDirectoryIndex error:error];
+		// Replace working directory cache with provided index, after materialized conflicts
+    GCIndex* processedIndex;
+    
+    if (transferWorkdirIndexOwnership) {
+      // Reuse provided index, for performance. Caller shouldn't modify it anymore
+      processedIndex = newWorkingDirectoryIndex;
+    } else {
+      // Don't modify provided index; use copy instead
+      processedIndex = [self createInMemoryCopyOfIndex:newWorkingDirectoryIndex error:error];
+    }
+    
     [self readConflictingFilesIntoIndex:processedIndex error:error];
 		
 		if (*error != nil) {

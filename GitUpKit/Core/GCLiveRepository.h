@@ -104,9 +104,10 @@ extern NSString* const GCLiveRepositoryAmendOperationReason;
 ///
 /// Overwrites the working directory and index with the provided values. Updates `workingDirectoryContent` and `existingIgnoredPaths`.
 - (BOOL)updatingCacheWriteWorkingDirectory:(GCIndex*)newWorkingDirectoryIndex
-																		 stage:(GCIndex*)newStageIndex
-																		 error:(NSError**)error
-													diffIndexesBlock:(GCDiffIndexesBlock)diffIndexesBlock;
+                                     stage:(GCIndex*)newStageIndex
+             transferWorkdirIndexOwnership:(BOOL)transferWorkdirIndexOwnership
+                                     error:(NSError**)error
+                          diffIndexesBlock:(GCDiffIndexesBlock)diffIndexesBlock;
 @property(nonatomic) BOOL workingDirectoryThresholdsEnabled;
 
 @property(nonatomic, getter=areSnapshotsEnabled) BOOL snapshotsEnabled;  // Default is NO - Should be enabled *after* setting delegate so any error can be received
