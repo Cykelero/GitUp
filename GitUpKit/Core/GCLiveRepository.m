@@ -733,7 +733,6 @@ cleanup:
   }
 }
 
-
 - (BOOL)updatingCacheWriteWorkingDirectory:(GCIndex*)newWorkingDirectoryIndex
 																		 stage:(GCIndex*)newStageIndex
 																		 error:(NSError**)error
@@ -798,58 +797,7 @@ cleanup:
 		// Replace working directory cache with provided index
 		// Creates a copy of the provided index, but with materialized conflicts: for each conflict, reads its files from the workdir into the workdir cache.
 		GCIndex* processedIndex = [self createInMemoryCopyOfIndex:newWorkingDirectoryIndex error:error];
-		if (*error != nil) {
-			_workingDirectoryContent = nil;
-      _workingDirectoryContentUpdateError = *error;
-			return NO;
-		}
-		
-		[newWorkingDirectoryIndex enumerateConflictsUsingBlock:^(GCIndexConflict* conflict, BOOL* stop) {
-			// Ancestor path
-			if (conflict.ancestorPath) {
-				[self removeEntry:conflict.ancestorPath fromIndex:processedIndex failIfMissing:true error:error];
-				
-				NSError* localError = nil;
-				if (![self addFileInWorkingDirectory:conflict.ancestorPath toIndex:processedIndex error:&localError]) {
-					BOOL wasJustTryingToStageADeletedConflictingFile =
-					[[localError localizedDescription] isEqualToString:@"No such file or directory"];
-					
-					if (!wasJustTryingToStageADeletedConflictingFile) {
-						*error = localError; // is actually a relevant error
-					}
-				}
-			}
-			
-			// Our path
-			if (conflict.ourPath && conflict.ourPath != conflict.ancestorPath) {
-				[self removeEntry:conflict.ourPath fromIndex:processedIndex failIfMissing:true error:error];
-				
-				NSError* localError = nil;
-				if (![self addFileInWorkingDirectory:conflict.ourPath toIndex:processedIndex error:&localError]) {
-					BOOL wasJustTryingToStageADeletedConflictingFile =
-					[[localError localizedDescription] isEqualToString:@"No such file or directory"];
-					
-					if (!wasJustTryingToStageADeletedConflictingFile) {
-						*error = localError; // is actually a relevant error
-					}
-				}
-			}
-			
-			// Their path
-			if (conflict.theirPath && conflict.theirPath != conflict.ancestorPath && conflict.theirPath != conflict.ourPath) {
-				[self removeEntry:conflict.theirPath fromIndex:processedIndex failIfMissing:true error:error];
-				
-				NSError* localError = nil;
-				if (![self addFileInWorkingDirectory:conflict.theirPath toIndex:processedIndex error:&localError]) {
-					BOOL wasJustTryingToStageADeletedConflictingFile =
-					[[localError localizedDescription] isEqualToString:@"No such file or directory"];
-					
-					if (!wasJustTryingToStageADeletedConflictingFile) {
-						*error = localError; // is actually a relevant error
-					}
-				}
-			}
-		}];
+    [self readConflictingFilesIntoIndex:processedIndex error:error];
 		
 		if (*error != nil) {
 			_workingDirectoryContent = nil;
@@ -880,6 +828,43 @@ cleanup:
 #endif
 	
 	return YES;
+}
+
+- (BOOL)readConflictingFilesIntoIndex:(GCIndex *)index error:(NSError**)error {
+  // Collect paths of conflicting files
+  NSMutableArray<NSString*>* conflictingPaths = [NSMutableArray array];
+  
+  [index enumerateConflictsUsingBlock:^(GCIndexConflict* conflict, BOOL* stop) {
+    if (conflict.ancestorPath) {
+      [conflictingPaths addObject:conflict.ancestorPath];
+    }
+    
+    if (conflict.ourPath && conflict.ourPath != conflict.ancestorPath) {
+      [conflictingPaths addObject:conflict.ourPath];
+    }
+    
+    if (conflict.theirPath && conflict.theirPath != conflict.ancestorPath && conflict.theirPath != conflict.ourPath) {
+      [conflictingPaths addObject:conflict.theirPath];
+    }
+  }];
+  
+  // Read paths to index
+  for (NSString* conflictingPath in conflictingPaths) {
+    // Remove entry
+    [self removeEntry:conflictingPath fromIndex:index failIfMissing:true error:error];
+    
+    // Read file
+    NSError* localError = nil;
+    if (![self addFileInWorkingDirectory:conflictingPath toIndex:index error:&localError]) {
+      BOOL wasJustTryingToReadADeletedFile = [[localError localizedDescription] isEqualToString:@"No such file or directory"];
+      if (!wasJustTryingToReadADeletedFile) {
+        *error = localError; // is actually a relevant error
+        return NO;
+      }
+    }
+  }
+  
+  return YES;
 }
 
 #pragma mark - Snapshots
