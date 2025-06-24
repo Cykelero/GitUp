@@ -661,6 +661,7 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
         // Submodule?
         if (entry->index_to_workdir->new_file.mode == GIT_FILEMODE_COMMIT) {
           // Ignore (not yet supported)
+          [self syncEntry:[NSString stringWithUTF8String:newFilePath] fromOtherIndex:initialRepositoryIndex toIndex:repositoryIndex error:&theError];
           continue;
         }
         
