@@ -709,7 +709,13 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
   }
   
   // Create in-memory index from repository index
-  workingDirectoryContent = [self createInMemoryCopyOfIndex:repositoryIndex error:&theError];
+  // If possible, update existing workdir cache, instead of creating a new one, for performance.
+  if (_workingDirectoryContent && _workingDirectoryContentUpdateError == nil) {
+    workingDirectoryContent = _workingDirectoryContent;
+    [self resetIndex:workingDirectoryContent toIndex:repositoryIndex error:&theError];
+  } else {
+    workingDirectoryContent = [self createInMemoryCopyOfIndex:repositoryIndex error:&theError];
+  }
   
   // Restore repository index
   [self resetRepositoryIndexToIndex:_reusableRepositoryIndexSnapshot error:&theError];
