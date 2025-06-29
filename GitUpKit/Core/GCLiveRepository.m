@@ -504,7 +504,8 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
 }
 
 - (void)updateWorkingDirectoryCacheResettingFuses:(BOOL)resetFuses {
-  // NOTE: We might be able to avoid writing to the repo's index by using git_index_add instead of git_index_add_bypath, although that would likely require modifying libgit2. That would both reduce side-effects (no index change), improve performance noticeably, and simplify the code (no need to smartly reload last cache, and to restore the repo index). Make sure to preserve stat cache. See: https://stackoverflow.com/a/57952919
+  // NOTE: We might be able to avoid writing to the repo's index by using git_index_add instead of git_index_add_bypath, although that would likely require modifying libgit2. That would both reduce side-effects (no index change), improve performance noticeably, and simplify the code (no need to smartly reload last cache, and to restore the repo index). Make sure to preserve stat cache. See: https://stackoverflow.com/a/57952919.
+  // NOTE: Or! We could use git_repository_set_index twice, to temporarily set our cache index's owner to the repo. This carries side-effects (see https://github.com/libgit2/libgit2/issues/3531#issuecomment-163438788) but these seem actually favorable. (although, that might mean the stat cache would get need to be updated twice—once when updating the stage (i.e. staging), and once when updating the workdir cache)
   
   BOOL success = NO;
   NSError* theError = nil;
@@ -709,13 +710,7 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
   }
   
   // Create in-memory index from repository index
-  // If possible, update existing workdir cache, instead of creating a new one, for performance.
-  if (_workingDirectoryContent && _workingDirectoryContentUpdateError == nil) {
-    workingDirectoryContent = _workingDirectoryContent;
-    [self resetIndex:workingDirectoryContent toIndex:repositoryIndex error:&theError];
-  } else {
-    workingDirectoryContent = [self createInMemoryCopyOfIndex:repositoryIndex error:&theError];
-  }
+  workingDirectoryContent = [self createInMemoryCopyOfIndex:repositoryIndex error:&theError];
   
   // Restore repository index
   [self resetRepositoryIndexToIndex:_reusableRepositoryIndexSnapshot error:&theError];
@@ -749,7 +744,6 @@ cleanup:
 
 - (BOOL)updatingCacheWriteWorkingDirectory:(GCIndex*)newWorkingDirectoryIndex
                                      stage:(GCIndex*)newStageIndex
-             transferWorkdirIndexOwnership:(BOOL)transferWorkdirIndexOwnership
                                      error:(NSError**)error
                           diffIndexesBlock:(GCDiffIndexesBlock)diffIndexesBlock {
 	// Get index diff (implementing this in Objective-C would be too much for me)
@@ -810,15 +804,7 @@ cleanup:
 		// - For the ignored paths cache: I think I'd have to iterate over every single known file (present in either current workdir cache, or in new workdir index, or in current ignored paths cache) and check its ignored status with libgit2, and add/remove it from the ignored paths list accordingly.
 	} else {
 		// Replace working directory cache with provided index, after materialized conflicts
-    GCIndex* processedIndex;
-    
-    if (transferWorkdirIndexOwnership) {
-      // Reuse provided index, for performance. Caller shouldn't modify it anymore
-      processedIndex = newWorkingDirectoryIndex;
-    } else {
-      // Don't modify provided index; use copy instead
-      processedIndex = [self createInMemoryCopyOfIndex:newWorkingDirectoryIndex error:error];
-    }
+    GCIndex* processedIndex = [self createInMemoryCopyOfIndex:newWorkingDirectoryIndex error:error];
     
     [self readConflictingFilesIntoIndex:processedIndex error:error];
 		

@@ -105,7 +105,6 @@ extern NSString* const GCLiveRepositoryAmendOperationReason;
 /// Overwrites the working directory and index with the provided values. Updates `workingDirectoryContent` and `existingIgnoredPaths`.
 - (BOOL)updatingCacheWriteWorkingDirectory:(GCIndex*)newWorkingDirectoryIndex
                                      stage:(GCIndex*)newStageIndex
-             transferWorkdirIndexOwnership:(BOOL)transferWorkdirIndexOwnership
                                      error:(NSError**)error
                           diffIndexesBlock:(GCDiffIndexesBlock)diffIndexesBlock;
 @property(nonatomic) BOOL workingDirectoryThresholdsEnabled;
