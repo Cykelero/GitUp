@@ -66,6 +66,8 @@ static _Atomic int32_t _allocatedCount = ATOMIC_VAR_INIT(0);
   FSEventStreamRef _workingDirectoryStream;
   BOOL _workingDirectoryChanged;
   BOOL _workingDirectoryDiffSizeExceedsThreshold;
+  /// Value is meaningless outside of `updateWorkingDirectoryCacheResettingFuses:`
+  GCIndex* _reusableRepositoryIndexSnapshot;
   CFRunLoopTimerRef _updateTimer;  // Can't use a NSTimer because of retain-cycle
   CFAbsoluteTime _timerLastFireTime;
   GCRepositoryState _state;
@@ -211,6 +213,11 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
     _minUpdateInterval = 1 - kFSLatency;
     _workingDirectoryThresholdsEnabled = YES;
     _workingDirectoryDiffSizeExceedsThreshold = NO;
+    _reusableRepositoryIndexSnapshot = [self createInMemoryIndex:error];
+    
+    if (_reusableRepositoryIndexSnapshot == nil) {
+      return nil;
+    }
 
     _state = [super state];
 
@@ -508,7 +515,6 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
   GCIndex* workingDirectoryContent = nil;
   
   GCIndex* repositoryIndex = nil;
-  GCIndex* initialRepositoryIndex = nil;
   
   NSMutableArray* existingIgnoredPaths = [[NSMutableArray alloc] init];
   
@@ -516,9 +522,9 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
   CFAbsoluteTime startTime = CFAbsoluteTimeGetCurrent();
   
   repositoryIndex = [self readRepositoryIndex:&theError]; // the new cache will be read into the workdir index
-  initialRepositoryIndex = [self createInMemoryCopyOfIndex:repositoryIndex error:&theError]; // this allows restoring the workdir index afterwards
+  [self resetIndex:_reusableRepositoryIndexSnapshot toIndex:repositoryIndex error:&theError]; // this allows restoring the workdir index afterwards. persisting this variable means performing fewer updates, each time
   
-  if (repositoryIndex == nil || initialRepositoryIndex == nil || theError != nil) {
+  if (repositoryIndex == nil || theError != nil) {
     goto cleanup;
   }
   
@@ -638,7 +644,7 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
         
         if (accumulatedEntrySize > maximumTotalEntrySize) {
           // Too big. Restore repository index and abort.
-          [self resetRepositoryIndexToIndex:initialRepositoryIndex error:&theError];
+          [self resetRepositoryIndexToIndex:_reusableRepositoryIndexSnapshot error:&theError];
           
           _workingDirectoryDiffSizeExceedsThreshold = YES; // getting to this point can be slow, so remember
           *error = GCNewError(kGCErrorCode_Retcon_ThresholdExceeded, @"Total status entry size too large when updating working directory");
@@ -660,8 +666,9 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
         
         // Submodule?
         if (entry->index_to_workdir->new_file.mode == GIT_FILEMODE_COMMIT) {
-          // Ignore (not yet supported)
-          [self syncEntry:[NSString stringWithUTF8String:newFilePath] fromOtherIndex:initialRepositoryIndex toIndex:repositoryIndex error:&theError];
+          // Not yet supported: match whatever state the submodule is in in the index
+          // More often than not, this will show the submodule as unchanged. (so, not show it at all)
+          [self syncEntry:[NSString stringWithUTF8String:newFilePath] fromOtherIndex:_reusableRepositoryIndexSnapshot toIndex:repositoryIndex error:&theError];
           continue;
         }
         
@@ -705,7 +712,7 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
   workingDirectoryContent = [self createInMemoryCopyOfIndex:repositoryIndex error:&theError];
   
   // Restore repository index
-  [self resetRepositoryIndexToIndex:initialRepositoryIndex error:&theError];
+  [self resetRepositoryIndexToIndex:_reusableRepositoryIndexSnapshot error:&theError];
   
   // Final error check
   if (theError != nil) {
