@@ -59,6 +59,7 @@ typedef BOOL (^GCIndexLineFilter)(GCLineDiffChange change, NSUInteger oldLineNum
 - (GCIndex*)createInMemoryCopyOfIndex:(GCIndex*)index error:(NSError**)error;
 /// Sets the repository's index to the provided index.
 - (BOOL)resetRepositoryIndexToIndex:(GCIndex*)sourceIndex error:(NSError**)error;
+- (BOOL)resetIndex:(GCIndex*)targetIndex toIndex:(GCIndex*)sourceIndex error:(NSError**)error;
 - (GCIndex*)readRepositoryIndex:(NSError**)error;
 - (BOOL)writeRepositoryIndex:(GCIndex*)index error:(NSError**)error;
 

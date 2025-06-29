@@ -415,29 +415,35 @@ static inline BOOL _EqualIndexes(GCIndex* index1, GCIndex* index2) {
   }
   
   // Sync all entries from source index to repo index
-  // // First, copy conflicts
-  // // Necessary because “none->conflicting” differences do NOT show up in diffs.
+  [self resetIndex:repositoryIndex toIndex:sourceIndex error:error];
+  
+  // Write repository index
+  [self writeRepositoryIndex:repositoryIndex error:error];
+  
+  return *error == nil ? YES : NO;
+}
+
+- (BOOL)resetIndex:(GCIndex*)targetIndex toIndex:(GCIndex*)sourceIndex error:(NSError**)error {
+  // First, copy conflicts
+  // Necessary because “none->conflicting” differences do NOT show up in diffs.
   [sourceIndex enumerateConflictsUsingBlock:^(GCIndexConflict* conflict, BOOL* stop) {
-    [self copyConflict:conflict.path fromOtherIndex:sourceIndex toIndex:repositoryIndex error:error];
+    [self copyConflict:conflict.path fromOtherIndex:sourceIndex toIndex:targetIndex error:error];
   }];
   
-  // // Then, copy all remaining differences
-  GCDiff* repoIndexToSourceIndexDiff = [self diffIndex:sourceIndex
-                                             withIndex:repositoryIndex
-                                           filePattern:nil
-                                               options:0
-                                     maxInterHunkLines:0
-                                       maxContextLines:0
-                                                 error:error];
+  // Then, copy all remaining differences, including deletes
+  GCDiff* targetIndexToSourceIndexDiff = [self diffIndex:sourceIndex
+                                               withIndex:targetIndex
+                                             filePattern:nil
+                                                 options:0
+                                       maxInterHunkLines:0
+                                         maxContextLines:0
+                                                   error:error];
   
-  for (GCDiffDelta* delta in repoIndexToSourceIndexDiff.deltas) {
-    [self syncEntry:delta.canonicalPath fromOtherIndex:sourceIndex toIndex:repositoryIndex error:error];
+  for (GCDiffDelta* delta in targetIndexToSourceIndexDiff.deltas) {
+    [self syncEntry:delta.canonicalPath fromOtherIndex:sourceIndex toIndex:targetIndex error:error];
   }
-	
-	// Write repository index
-	[self writeRepositoryIndex:repositoryIndex error:error];
-	
-	return *error == nil ? YES : NO;
+  
+  return *error == nil ? YES : NO;
 }
 
 - (GCIndex*)readRepositoryIndex:(NSError**)error {
