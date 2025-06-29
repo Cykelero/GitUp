@@ -25,6 +25,7 @@
 
 // libgit2 SPI
 extern void git_index_entry__init_from_stat(git_index_entry* entry, struct stat* st, bool trust_mode);
+extern int git_index_read_index(git_index *index, const git_index *new_index);
 
 @implementation GCIndexConflict {
   git_oid _ancestorOID;
@@ -376,14 +377,8 @@ static inline BOOL _EqualIndexes(GCIndex* index1, GCIndex* index2) {
 	if (!result) {
 		return nil;
 	}
-	
-	[sourceIndex enumerateFilesUsingBlock:^(NSString* path, GCFileMode mode, NSString* sha1, BOOL* stop) {
-		[self copyFile:path fromOtherIndex:sourceIndex toIndex:result error:error];
-	}];
-	
-	[sourceIndex enumerateConflictsUsingBlock:^(GCIndexConflict* conflict, BOOL* stop) {
-		[self copyConflict:conflict.path fromOtherIndex:sourceIndex toIndex:result error:error];
-	}];
+  
+  CALL_LIBGIT2_FUNCTION_RETURN(nil, git_index_read_index, result.private, sourceIndex.private);
 	
 	return result;
 }
