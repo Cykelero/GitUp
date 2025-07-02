@@ -286,6 +286,8 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
 }
 
 - (void)_notifyWorkingDirectoryChanged:(BOOL)workingDirectoryChanged gitDirectoryChanged:(BOOL)gitDirectoryChanged {
+  BOOL referencesChanged = false;
+  
   if (workingDirectoryChanged) {
     [self updateWorkingDirectoryCacheResettingFuses:YES];
 
@@ -303,7 +305,7 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
     if (_historyUpdatesSuspended > 0) {
       _historyUpdatePending = YES;
     } else {
-      [self _updateHistory];
+      [self _updateHistory:&referencesChanged];
     }
     if (_stashesEnabled) {
       [self _updateStashes:YES];
@@ -316,6 +318,10 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
       [self.delegate repositoryDidChange:self];
     }
     [[NSNotificationCenter defaultCenter] postNotificationName:GCLiveRepositoryDidChangeNotification object:self];
+  }
+  
+  if ([self.delegate respondsToSelector:@selector(repositoryDidChange:workingDirectoryChanged:gitDirectoryChanged:referencesChanged:)]) {
+    [self.delegate repositoryDidChange:self workingDirectoryChanged:workingDirectoryChanged gitDirectoryChanged:gitDirectoryChanged referencesChanged:referencesChanged];
   }
 }
 
@@ -419,18 +425,32 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
   _historyUpdatesSuspended -= 1;
   if (_historyUpdatesSuspended == 0) {
     if (_historyUpdatePending) {
-      [self _updateHistory];
+      BOOL referencesChanged;
+      
+      [self _updateHistory:&referencesChanged];
       _historyUpdatePending = NO;
+      
+      if (referencesChanged && [self.delegate respondsToSelector:@selector(repositoryDidChange:workingDirectoryChanged:gitDirectoryChanged:)]) {
+        [self.delegate repositoryDidChange:self workingDirectoryChanged:NO gitDirectoryChanged:NO referencesChanged:referencesChanged];
+      }
     }
   }
 }
 
-- (void)_updateHistory {
+- (void)_updateHistory:(BOOL*)outReferencesDidChange {
+  if (outReferencesDidChange) {
+    *outReferencesDidChange = NO;
+  }
+  
   NSError* error;
   BOOL referencesDidChange;
   CFAbsoluteTime time = CFAbsoluteTimeGetCurrent();
   if ([self reloadHistory:_history referencesDidChange:&referencesDidChange addedCommits:NULL removedCommits:NULL error:&error]) {
     if (referencesDidChange) {
+      if (outReferencesDidChange) {
+        *outReferencesDidChange = YES;
+      }
+      
       XLOG_VERBOSE(@"History updated for \"%@\" (%lu commits scanned in %.3f seconds)", self.repositoryPath, _history.allCommits.count, CFAbsoluteTimeGetCurrent() - time);
 
       if (_snapshotsTimer) {
