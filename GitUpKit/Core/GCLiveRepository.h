@@ -57,6 +57,8 @@ extern NSString* const GCLiveRepositoryAmendOperationReason;
 @optional
 - (void)repositoryDidChange:(GCRepository*)repository;
 - (void)repositoryWorkingDirectoryDidChange:(GCRepository*)repository;
+/// Called when any data changes. `gitDirectoryChanged` is also true whenever `referencesChanged` is true.
+- (void)repositoryDidChange:(GCRepository*)repository workingDirectoryChanged:(BOOL)workingDirectoryChanged gitDirectoryChanged:(BOOL)gitDirectoryChanged referencesChanged:(BOOL)referencesChanged;
 
 - (void)repositoryDidUpdateState:(GCLiveRepository*)repository;
 
