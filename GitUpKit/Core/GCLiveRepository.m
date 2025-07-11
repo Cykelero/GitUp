@@ -333,6 +333,11 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
   [self _notifyWorkingDirectoryChanged:YES gitDirectoryChanged:NO];
 }
 
+- (void)notifyWorkingDirectoryChanged:(BOOL)workingDirectoryChanged gitDirectoryChanged:(BOOL)gitDirectoryChanged {
+  XLOG_DEBUG_CHECK(workingDirectoryChanged || gitDirectoryChanged);
+  [self _notifyWorkingDirectoryChanged:(BOOL)workingDirectoryChanged gitDirectoryChanged:(BOOL)gitDirectoryChanged];
+}
+
 - (void)flushUpdateTimer {
   CFAbsoluteTime updateTimerNextFireDate = CFRunLoopTimerGetNextFireDate(_updateTimer);
   CFAbsoluteTime updateTimerScheduledThreshold =
