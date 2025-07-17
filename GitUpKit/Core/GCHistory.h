@@ -28,6 +28,7 @@ typedef NS_ENUM(NSUInteger, GCHistorySorting) {
 @interface GCHistoryCommit : GCCommit
 @property(nonatomic, readonly) NSUInteger autoIncrementID;  // Uniquely increasing ID for each GCHistoryCommit instantiated for a GCHistory (can be used for LUTs)
 @property(nonatomic, readonly) NSArray* parents;  // Sorting is defined by hierarchy
+@property(nonatomic, readonly) GCHistoryCommit* firstParent;  // Avoid array bridging cost when used from Swift
 @property(nonatomic, readonly) NSArray* children;  // Sorting is arbitrary and not guaranteed to be stable
 @property(nonatomic, readonly) NSArray* localBranches;
 @property(nonatomic, readonly) NSArray* remoteBranches;
