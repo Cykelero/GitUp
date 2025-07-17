@@ -78,6 +78,10 @@ static const void* _associatedObjectUpstreamNameKey = &_associatedObjectUpstream
   return (NSArray*)_parents;
 }
 
+- (GCHistoryCommit*)firstParent {
+  return [(NSArray*)_parents firstObject];
+}
+
 - (NSArray*)children {
   return (NSArray*)_children;
 }
