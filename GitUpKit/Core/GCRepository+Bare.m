@@ -68,17 +68,34 @@ static inline GCCommit* _CopyCommit(GCRepository* repository, git_commit* commit
     CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_commit_tree, &ourTree, ourCommit);
   }
   CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_commit_tree, &theirTree, theirCommit);
-  git_merge_options mergeOptions = GIT_MERGE_OPTIONS_INIT;
-  CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_merge_trees, &index, self.private, ancestorTree, ourTree, theirTree, &mergeOptions);
-  if (git_index_has_conflicts(index) && handler) {
-    NSMutableArray* array = [[NSMutableArray alloc] init];
-    for (NSUInteger i = 0; i < count; ++i) {
-      [array addObject:_CopyCommit(self, (git_commit*)parents[i])];
-    }
-    commit = handler([[GCIndex alloc] initWithRepository:nil index:index], ourCommit ? _CopyCommit(self, ourCommit) : nil, _CopyCommit(self, theirCommit), array, message, error);  // Doesn't make sense to specify a custom author on conflict anyway
-    index = NULL;  // Ownership has been transferred to GCIndex instance
+  
+  if (
+    (ancestorTree && ourTree && git_oid_equal(git_tree_id(ancestorTree), git_tree_id(ourTree)))
+    || (!ancestorTree && !ourTree)
+  ) {
+    // Skip merging trees: we're cherry-picking a commit back onto its parent
+    commit = [self createCommitFromTree:theirTree withParents:parents count:count author:author message:message error:error];
+  } else if (
+    (ancestorTree && theirTree && git_oid_equal(git_tree_id(ancestorTree), git_tree_id(theirTree)))
+    || (!ancestorTree && !theirTree)
+  ) {
+    // Skip merging trees: we're cherry-picking a commit onto one of its children
+    commit = [self createCommitFromTree:ourTree withParents:parents count:count author:author message:message error:error];
   } else {
-    commit = [self createCommitFromIndex:index withParents:parents count:count author:author message:message error:error];
+    // Merge trees
+    git_merge_options mergeOptions = GIT_MERGE_OPTIONS_INIT;
+    CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_merge_trees, &index, self.private, ancestorTree, ourTree, theirTree, &mergeOptions);
+    
+    if (git_index_has_conflicts(index) && handler) {
+      NSMutableArray* array = [[NSMutableArray alloc] init];
+      for (NSUInteger i = 0; i < count; ++i) {
+        [array addObject:_CopyCommit(self, (git_commit*)parents[i])];
+      }
+      commit = handler([[GCIndex alloc] initWithRepository:nil index:index], ourCommit ? _CopyCommit(self, ourCommit) : nil, _CopyCommit(self, theirCommit), array, message, error);  // Doesn't make sense to specify a custom author on conflict anyway
+      index = NULL;  // Ownership has been transferred to GCIndex instance
+    } else {
+      commit = [self createCommitFromIndex:index withParents:parents count:count author:author message:message error:error];
+    }
   }
 
 cleanup:
