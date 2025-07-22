@@ -343,19 +343,27 @@ static inline BOOL _EqualIndexes(GCIndex* index1, GCIndex* index2) {
 
 - (NSString*)description {
   size_t count = git_index_entrycount(_private);
-  NSMutableString* string = [[NSMutableString alloc] initWithFormat:@"%@ (%lu entries)", self.class, count];
+  size_t nameEntryCount = git_index_name_entrycount(_private);
+  
+  NSMutableString* string = [[NSMutableString alloc] initWithFormat:@"%@ (%lu entries, %lu name entries)", self.class, count, nameEntryCount];
+  
+  // Print entries
   for (size_t i = 0; i < count; ++i) {
     const git_index_entry* entry = git_index_get_byindex(_private, i);
     if (git_index_entry_stage(entry) == 0) {
-      [string appendFormat:@"\n[%s] %s", git_oid_tostr_s(&entry->id), entry->path];
-    }
-  }
-  for (size_t i = 0; i < count; ++i) {
-    const git_index_entry* entry = git_index_get_byindex(_private, i);
-    if (git_index_entry_stage(entry) != 0) {
+      [string appendFormat:@"\n    [%s] %s", git_oid_tostr_s(&entry->id), entry->path];
+    } else {
       [string appendFormat:@"\n(%i) [%s] %s", git_index_entry_stage(entry), git_oid_tostr_s(&entry->id), entry->path];
     }
   }
+  
+  // Print name entries
+  for (size_t nameEntryIndex = 0; nameEntryIndex < nameEntryCount; ++nameEntryIndex) {
+    const git_index_name_entry* nameEntry = git_index_name_get_byindex(_private, nameEntryIndex);
+    [string appendFormat:@"\n- A: %s, O: %s, T: %s", nameEntry->ancestor, nameEntry->ours, nameEntry->theirs];
+  }
+  
+  // Return
   return string;
 }
 
