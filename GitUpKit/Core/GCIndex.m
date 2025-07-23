@@ -745,12 +745,19 @@ cleanup:
 }
 
 - (BOOL)checkoutFilesToWorkingDirectory:(NSArray<NSString*>*)paths fromIndex:(GCIndex*)index error:(NSError**)error {
+  return [self checkoutFilesToWorkingDirectory:paths fromIndex:index removingUntracked:NO error:error];
+}
+  
+- (BOOL)checkoutFilesToWorkingDirectory:(NSArray<NSString*>*)paths fromIndex:(GCIndex*)index removingUntracked:(BOOL)removeUntracked error:(NSError**)error {
 	if ([paths count] == 0) {
 		return YES;
 	}
 	
   git_checkout_options options = GIT_CHECKOUT_OPTIONS_INIT;
   options.checkout_strategy = GIT_CHECKOUT_FORCE | GIT_CHECKOUT_DISABLE_PATHSPEC_MATCH;
+  if (removeUntracked) {
+    options.checkout_strategy |= GIT_CHECKOUT_REMOVE_UNTRACKED;
+  }
   options.paths.count = paths.count;
   char** pathStrings = malloc(paths.count * sizeof(char*));
   options.paths.strings = pathStrings;
