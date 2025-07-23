@@ -427,10 +427,17 @@ static inline BOOL _EqualIndexes(GCIndex* index1, GCIndex* index2) {
 }
 
 - (BOOL)resetIndex:(GCIndex*)targetIndex toIndex:(GCIndex*)sourceIndex error:(NSError**)error {
-  // First, copy conflicts
-  // Necessary because “none->conflicting” differences do NOT show up in diffs.
+  // First, copy and overwrite conflicts
+  // Necessary because “none->conflicting” and “conflicting->none” differences do NOT show up in diffs.
+  // Untested, but “conflict->a different conflict” differences probably also don't show.
+  // // Copy source conflicts to target
   [sourceIndex enumerateConflictsUsingBlock:^(GCIndexConflict* conflict, BOOL* stop) {
     [self copyConflict:conflict.path fromOtherIndex:sourceIndex toIndex:targetIndex error:error];
+  }];
+  
+  // // Preemptively override target conflicts
+  [targetIndex enumerateConflictsUsingBlock:^(GCIndexConflict* conflict, BOOL* stop) {
+    [self syncEntry:conflict.path fromOtherIndex:sourceIndex toIndex:targetIndex error:error];
   }];
   
   // Then, copy all remaining differences, including deletes
