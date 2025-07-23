@@ -77,6 +77,7 @@ typedef BOOL (^GCIndexLineFilter)(GCLineDiffChange change, NSUInteger oldLineNum
 
 - (BOOL)checkoutFileToWorkingDirectory:(NSString*)path fromIndex:(GCIndex*)index error:(NSError**)error;
 - (BOOL)checkoutFilesToWorkingDirectory:(NSArray<NSString*>*)paths fromIndex:(GCIndex*)index error:(NSError**)error;
+- (BOOL)checkoutFilesToWorkingDirectory:(NSArray<NSString*>*)paths fromIndex:(GCIndex*)index removingUntracked:(BOOL)removeUntracked error:(NSError**)error;
 - (BOOL)checkoutLinesInFileToWorkingDirectory:(NSString*)path fromIndex:(GCIndex*)index error:(NSError**)error usingFilter:(GCIndexLineFilter)filter;
 
 - (BOOL)clearConflictForFile:(NSString*)path inIndex:(GCIndex*)index error:(NSError**)error;

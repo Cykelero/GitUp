@@ -793,7 +793,7 @@ cleanup:
     // Write index, telling libgit2 what paths have changed
     // Fast when there are few paths. But, libgit2 iterates over the closest common ancestor of the provided paths, which can get slow quickly, presumably in some exponential manner. Tests indicate a 10% ratio is a good switchover point.
     // Reliably extremely fast for 0 and 1 paths.
-    if (![self checkoutFilesToWorkingDirectory:allPathsToWrite fromIndex:newWorkingDirectoryIndex error:error]) {
+    if (![self checkoutFilesToWorkingDirectory:allPathsToWrite fromIndex:newWorkingDirectoryIndex removingUntracked:YES error:error]) {
       return NO;
     }
   } else {
