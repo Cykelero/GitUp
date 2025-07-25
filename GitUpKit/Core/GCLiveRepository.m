@@ -790,11 +790,23 @@ cleanup:
 	);
 	
 	NSArray<NSString*>* allPathsToWrite = [modifiedPaths arrayByAddingObjectsFromArray:[deletedPaths arrayByAddingObjectsFromArray:renameInvolvingConflictPaths]];
-  float writtenFileCountRatio = (float)[allPathsToWrite count] / (float)[_workingDirectoryContent entryCount];
   
   // Write working directory
   // This also writes these same files to the workdir index, but we'll overwrite it immediately with `newWorkingDirectoryIndex`.
-  if (writtenFileCountRatio <= 0.1) {
+  BOOL performFileListCheckout;
+  
+  NSString* forcedWorkdirStrategyName = [[[NSProcessInfo processInfo] environment] objectForKey:@"RETCON_FORCED_CHECKOUT_STRATEGY"];
+  
+  if ([forcedWorkdirStrategyName isEqualToString:@"file-list"]) {
+    performFileListCheckout = YES;
+  } else if ([forcedWorkdirStrategyName isEqualToString:@"bruteforce"]) {
+    performFileListCheckout = NO;
+  } else {
+    float writtenFileCountRatio = (float)[allPathsToWrite count] / (float)[_workingDirectoryContent entryCount];
+    performFileListCheckout = writtenFileCountRatio <= 0.1;
+  }
+
+  if (performFileListCheckout) {
     // Write index, telling libgit2 what paths have changed
     // Fast when there are few paths. But, libgit2 iterates over the closest common ancestor of the provided paths, which can get slow quickly, presumably in some exponential manner. Tests indicate a 10% ratio is a good switchover point.
     // Reliably extremely fast for 0 and 1 paths.
