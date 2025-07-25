@@ -91,8 +91,10 @@ extern NSString* const GCLiveRepositoryAmendOperationReason;
 - (void)notifyRepositoryChanged;  // Calling this method is required when manipulating the repository from this process as live-updates don't apply
 - (void)notifyWorkingDirectoryChanged;  // Calling this method is required when manipulating the working directory from this process as live-updates don't apply
 - (void)notifyWorkingDirectoryChanged:(BOOL)workingDirectoryChanged gitDirectoryChanged:(BOOL)gitDirectoryChanged;
-/// Updates are processed as soon as the FS watcher emits them, but with this minimum wait time between updates.
+/// Updates are processed with this minimum wait time between updates.
 @property(nonatomic) CFTimeInterval minUpdateInterval;
+/// Updates are batched: they're only processed after this much time has elapsed without a new change occurring.
+@property(nonatomic) CFTimeInterval updateDebounceTime;
 /// If the GCLiveRepository has noticed filesystem changes, and therefore set the `_updateTimer` to fire soon (which can trigger a history update, a status update, etc), then this method fires the timer immediately. Does nothing otherwise.
 - (void)flushUpdateTimer;
 

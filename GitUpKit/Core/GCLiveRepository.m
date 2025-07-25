@@ -129,7 +129,12 @@ static void _TimerCallBack(CFRunLoopTimerRef timer, void* info) {
 }
 
 - (void)_stream:(ConstFSEventStreamRef)stream didReceiveEvents:(size_t)numEvents withPaths:(void*)eventPaths flags:(const FSEventStreamEventFlags*)eventFlags {
-  CFAbsoluteTime earliestAllowedFireDate = MAX(CFAbsoluteTimeGetCurrent() + 0.001, _timerLastFireTime + _minUpdateInterval);
+  CFAbsoluteTime earliestAllowedFireDate =
+    MAX(
+      CFAbsoluteTimeGetCurrent() + 0.001 + _updateDebounceTime,
+      _timerLastFireTime + _minUpdateInterval
+    );
+  
   for (size_t i = 0; i < numEvents; ++i) {
     const char* path = ((const char**)eventPaths)[i];
     if (eventFlags[i] & kFSEventStreamEventFlagMustScanSubDirs) {
@@ -342,7 +347,7 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
   CFAbsoluteTime updateTimerNextFireDate = CFRunLoopTimerGetNextFireDate(_updateTimer);
   CFAbsoluteTime updateTimerScheduledThreshold =
     CFAbsoluteTimeGetCurrent()
-    + 100; // arbitrary, but must be larger than any previous (or current) value of _updateLatency
+    + 100; // arbitrary, but must be larger than any previous (or current) value of both _updateDebounceTime and _minUpdateInterval
 	
   if (updateTimerNextFireDate < updateTimerScheduledThreshold) {
     [self _timer:_updateTimer];
