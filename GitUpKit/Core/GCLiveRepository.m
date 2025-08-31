@@ -533,6 +533,36 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
   }
 }
 
+/// Used when updating workdir cache. Copies sourceIndex entries to targetIndex if they're no entry at that path already. Also outputs the information of whether any gitignore file was added.
+- (BOOL)populateIndex:(GCIndex*)targetIndex withMissingFilesFromIndex:(GCIndex*)sourceIndex didCopyGitIgnoreFile:(BOOL*)didCopyGitIgnoreFile error:(NSError**)error {
+  NSMutableArray* targetIndexFilePaths = [[NSMutableArray alloc] init];
+  
+  if (didCopyGitIgnoreFile) {
+    *didCopyGitIgnoreFile = NO;
+  }
+  
+  // Make list of existing targetIndex paths
+  [targetIndex enumerateFilesUsingBlock:^(NSString* path, GCFileMode mode, NSString* sha1, BOOL* stop) {
+    [targetIndexFilePaths addObject:path];
+  }];
+  
+  // Copy sourceIndex entries into targetIndex if they're no existing entry at their path
+  [sourceIndex enumerateFilesUsingBlock:^(NSString* path, GCFileMode mode, NSString* sha1, BOOL* stop) {
+    if (![targetIndexFilePaths containsObject:path]) {
+      [self copyFile:path fromOtherIndex:sourceIndex toIndex:targetIndex error:error];
+      
+      if (
+          didCopyGitIgnoreFile
+          && [[path lastPathComponent] isEqualToString:@".gitignore"]
+      ) {
+        *didCopyGitIgnoreFile = YES;
+      }
+    }
+  }];
+  
+  return *error == nil ? YES : NO;
+}
+
 - (void)updateWorkingDirectoryCacheResettingFuses:(BOOL)resetFuses {
   // NOTE: We might be able to avoid writing to the repo's index by using git_index_add instead of git_index_add_bypath, although that would likely require modifying libgit2. That would both reduce side-effects (no index change), improve performance noticeably, and simplify the code (no need to smartly reload last cache, and to restore the repo index). Make sure to preserve stat cache. See: https://stackoverflow.com/a/57952919.
   // NOTE: Or! We could use git_repository_set_index twice, to temporarily set our cache index's owner to the repo. This carries side-effects (see https://github.com/libgit2/libgit2/issues/3531#issuecomment-163438788) but these seem actually favorable. (although, that might mean the stat cache would get need to be updated twice—once when updating the stage (i.e. staging), and once when updating the workdir cache)
@@ -547,6 +577,7 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
   
   GCIndex* repositoryIndex = nil;
   
+  BOOL someWorkdirGitignoreFileChanged;
   NSMutableArray* existingIgnoredPaths = [[NSMutableArray alloc] init];
   
   // Prepare
@@ -575,6 +606,16 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
     if (theError != nil) {
       goto cleanup;
     }
+  }
+  
+  // Make sure there is an entry in workdir cache for all tracked paths
+  // Regular Git behavior is that, for any path included in the index, that path is protected from gitignore rules (it cannot be ignored). However, since we've replaced the index content with the current workdir cache, this effect will not apply to all paths that it should, when running git_status_list_new. So here, we're populating all missing paths to make sure they have the proper protection.
+  // Also, if this process populates any gitignore path, make a note: this is relevant later.
+  // Of note, some paths that should not be protected will be (newly-ignored paths, when a gitignore file changes). This is fixed later.
+  [self populateIndex:repositoryIndex withMissingFilesFromIndex:_reusableRepositoryIndexSnapshot didCopyGitIgnoreFile:&someWorkdirGitignoreFileChanged error:&error];
+  
+  if (theError != nil) {
+    goto cleanup;
   }
   
   // Create status list
@@ -613,9 +654,11 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
   
   // Update cache index
   // // First, delete any now-ignored files from the index
-  // // Only if a gitignore file changed, which could have caused currently-cached files to now be ignored. The status list would NOT return any change for these.
-  BOOL someGitignoreFileChanged = NO;
-  
+  // // Only if a gitignore file changed. (or for the first refresh)
+  // // Goal: if a file is in the workdir cache, is not in the indx, and becomes included by gitignore rules, it should be removed from the cache. By default this won't happen: since we've loaded the workdir cache in the index, any cached file is technically in the index, so Git will ignore its newly-ignored status.
+  // // However, we musntn't indiscriminately remove all ignored files: files that are ignored but tracked (because in the actual index) must be included in the workdir cache, and kept up to date.
+  // // This likely doesn't trigger for ignored gitignore files, which is a bug.
+  // // `someWorkdirGitignoreFileChanged` might already be true, from copying missing stage entries above.
   for (size_t i = 0, count = git_status_list_entrycount(list); i < count; ++i) {
     const git_status_entry* entry = git_status_byindex(list, i);
     
@@ -630,13 +673,14 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
     }
     
     if ([[[NSString stringWithCString:filePath] lastPathComponent] isEqualToString:@".gitignore"]) {
-      someGitignoreFileChanged = YES;
+      someWorkdirGitignoreFileChanged = YES;
       break;
     }
   }
   
-  if (someGitignoreFileChanged) {
+  if (someWorkdirGitignoreFileChanged) {
     // List now-ignored paths
+    // This takes into account the anti-ignore effect of being in the repo index.
     NSMutableArray* pathsToRemove = [[NSMutableArray alloc] init];
     
     [repositoryIndex enumerateFilesUsingBlock:^(NSString* path, GCFileMode mode, NSString* sha1, BOOL* stop) {
@@ -647,6 +691,10 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
       if (ignored) {
         [pathsToRemove addObject:path];
       }
+    }];
+    
+    [_reusableRepositoryIndexSnapshot enumerateFilesUsingBlock:^(NSString* path, GCFileMode mode, NSString* sha1, BOOL* stop) {
+      [pathsToRemove removeObject:path];
     }];
     
     // Remove them from index, and add them to existingIgnoredPaths
