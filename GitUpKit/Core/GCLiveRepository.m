@@ -1072,8 +1072,7 @@ cleanup:
 
 - (void)setWorkingDirectoryThresholdsEnabled:(BOOL)flag {
   _workingDirectoryThresholdsEnabled = flag;
-  [self updateWorkingDirectoryCacheResettingFuses:YES];
-  [[NSNotificationCenter defaultCenter] postNotificationName:GCLiveRepositoryWorkingDirectoryDidChangeNotification object:self];
+  [self _notifyWorkingDirectoryChanged:YES gitDirectoryChanged:NO];
 }
 
 - (BOOL)areSnapshotsEnabled {
