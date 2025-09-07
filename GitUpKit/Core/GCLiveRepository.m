@@ -709,19 +709,19 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
   }
   
   // // Then, iterate on status list to incorporate changes
-  uint64 accumulatedEntrySize = 0;
+  uint64 accumulatedRelevantEntrySize = 0;
   for (size_t i = 0, count = git_status_list_entrycount(list); i < count; ++i) {
     const git_status_entry* entry = git_status_byindex(list, i);
     const char* newFilePath = entry->index_to_workdir->new_file.path; // can be nil
     
-    if (newFilePath && _workingDirectoryThresholdsEnabled) {
+    if (newFilePath && entry->status != GIT_STATUS_IGNORED && _workingDirectoryThresholdsEnabled) {
       // Count file size towards limit, and check
       NSString* newFileAbsolutePath = [self absolutePathForFile:GCFileSystemPathFromGitPath(newFilePath)];
       struct stat newFileStats;
       if (!lstat([newFileAbsolutePath UTF8String], &newFileStats)) {
-        accumulatedEntrySize += newFileStats.st_size;
+        accumulatedRelevantEntrySize += newFileStats.st_size;
         
-        if (accumulatedEntrySize > maximumTotalEntrySize) {
+        if (accumulatedRelevantEntrySize > maximumTotalEntrySize) {
           // Too big. Restore repository index and abort.
           [self resetRepositoryIndexToIndex:_reusableRepositoryIndexSnapshot error:&theError];
           
