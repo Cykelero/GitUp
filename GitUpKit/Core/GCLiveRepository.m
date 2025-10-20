@@ -824,20 +824,20 @@ cleanup:
                                      stage:(GCIndex*)newStageIndex
                                      error:(NSError**)error
                           diffIndexesBlock:(GCDiffIndexesBlock)diffIndexesBlock {
-	// Get index diff (implementing this in Objective-C would be too much for me)
-	NSArray<NSString*>* modifiedPaths;
-	NSArray<NSString*>* deletedPaths;
-	NSArray<NSString*>* renameInvolvingConflictPaths;
-	
-	diffIndexesBlock(
-		_workingDirectoryContent,
-		newWorkingDirectoryIndex,
-		&modifiedPaths,
-		&deletedPaths,
-		&renameInvolvingConflictPaths
-	);
-	
-	NSArray<NSString*>* allPathsToWrite = [modifiedPaths arrayByAddingObjectsFromArray:[deletedPaths arrayByAddingObjectsFromArray:renameInvolvingConflictPaths]];
+  // Get index diff (implementing this in Objective-C would be too much for me)
+  NSArray<NSString*>* modifiedPaths;
+  NSArray<NSString*>* deletedPaths;
+  NSArray<NSString*>* renameInvolvingConflictPaths;
+  
+  diffIndexesBlock(
+    _workingDirectoryContent,
+    newWorkingDirectoryIndex,
+    &modifiedPaths,
+    &deletedPaths,
+    &renameInvolvingConflictPaths
+  );
+  
+  NSArray<NSString*>* allPathsToWrite = [modifiedPaths arrayByAddingObjectsFromArray:[deletedPaths arrayByAddingObjectsFromArray:renameInvolvingConflictPaths]];
   
   // Write working directory
   // This also writes these same files to the workdir index, but we'll overwrite it immediately with `newWorkingDirectoryIndex`.
@@ -853,7 +853,7 @@ cleanup:
     float writtenFileCountRatio = (float)[allPathsToWrite count] / (float)[_workingDirectoryContent entryCount];
     performFileListCheckout = writtenFileCountRatio <= 0.1;
   }
-
+  
   if (performFileListCheckout) {
     // Write index, telling libgit2 what paths have changed
     // Fast when there are few paths. But, libgit2 iterates over the closest common ancestor of the provided paths, which can get slow quickly, presumably in some exponential manner. Tests indicate a 10% ratio is a good switchover point.
@@ -867,54 +867,54 @@ cleanup:
       return NO;
     }
   }
-	
-	// Write index
+  
+  // Write index
   // This overwrites the index we just wrote, but preserves the stat cache.
-	if (![self resetRepositoryIndexToIndex:newStageIndex error:error]) {
-		return NO;
-	}
-	
-	// Update workdir cache
-	BOOL someGitignoreFileChanged = false;
-	
-	for (NSString* path in allPathsToWrite) {
-		if ([[path lastPathComponent] isEqualToString:@".gitignore"]) {
-			someGitignoreFileChanged = true;
-			break;
-		}
-	}
-	
-	if (someGitignoreFileChanged) {
-		// Reload the whole cache from disk
+  if (![self resetRepositoryIndexToIndex:newStageIndex error:error]) {
+    return NO;
+  }
+  
+  // Update workdir cache
+  BOOL someGitignoreFileChanged = false;
+  
+  for (NSString* path in allPathsToWrite) {
+    if ([[path lastPathComponent] isEqualToString:@".gitignore"]) {
+      someGitignoreFileChanged = true;
+      break;
+    }
+  }
+  
+  if (someGitignoreFileChanged) {
+    // Reload the whole cache from disk
     [self updateWorkingDirectoryCacheResettingFuses:YES];
-		
-		// This is the slow, simple way.
-		// To do this better:
-		// - For the workdir cache: set the cache to a materialized version of the workdir index we just wrote—like is done below, in the “no .gitignore change” path—but then to iterate on all new files, and remove them if their path is ignored (using git_ignore_path_is_ignored or similar).
-		// - For the ignored paths cache: I think I'd have to iterate over every single known file (present in either current workdir cache, or in new workdir index, or in current ignored paths cache) and check its ignored status with libgit2, and add/remove it from the ignored paths list accordingly.
-	} else {
-		// Replace working directory cache with provided index, after materialized conflicts
+    
+    // This is the slow, simple way.
+    // To do this better:
+    // - For the workdir cache: set the cache to a materialized version of the workdir index we just wrote—like is done below, in the “no .gitignore change” path—but then to iterate on all new files, and remove them if their path is ignored (using git_ignore_path_is_ignored or similar).
+    // - For the ignored paths cache: I think I'd have to iterate over every single known file (present in either current workdir cache, or in new workdir index, or in current ignored paths cache) and check its ignored status with libgit2, and add/remove it from the ignored paths list accordingly.
+  } else {
+    // Replace working directory cache with provided index, after materialized conflicts
     GCIndex* processedIndex = [self createInMemoryCopyOfIndex:newWorkingDirectoryIndex error:error];
     
     [self readConflictingFilesIntoIndex:processedIndex error:error];
-		
-		if (*error != nil) {
-			_workingDirectoryContent = nil;
+    
+    if (*error != nil) {
+      _workingDirectoryContent = nil;
       _workingDirectoryContentUpdateError = *error;
-			return NO;
-		}
-		
-		_workingDirectoryContent = processedIndex;
-		
-		// Don't do anything to ignored paths cache
-		// Due to the way these are used in Retcon, updating the cache is not necessary here. It could result in paths for now-deleted files being still present, but that won't cause issues.
-		
-		// If we want to implement this properly someday, we'd need to:
-		// - Copy the current list.
-		// - Diff the new workdir index from the currently cached working directory contents.
-		// - For each removed file, remove its path in the list, if it's there.
-		// - For each added file, check with libgit2 (git_ignore_path_is_ignored or similar) if it's ignored. If so, add it to the list (if it's not there already).
-	}
+      return NO;
+    }
+    
+    _workingDirectoryContent = processedIndex;
+    
+    // Don't do anything to ignored paths cache
+    // Due to the way these are used in Retcon, updating the cache is not necessary here. It could result in paths for now-deleted files being still present, but that won't cause issues.
+    
+    // If we want to implement this properly someday, we'd need to:
+    // - Copy the current list.
+    // - Diff the new workdir index from the currently cached working directory contents.
+    // - For each removed file, remove its path in the list, if it's there.
+    // - For each added file, check with libgit2 (git_ignore_path_is_ignored or similar) if it's ignored. If so, add it to the list (if it's not there already).
+  }
   
   // Check that cache doesn't contain ignored files
   // It's probably fine—and probably happens whenever a committed/staged file has an ignored path.
@@ -925,8 +925,8 @@ cleanup:
     NSAssert(!fileIsIgnored, @"The code isn't ready to handle this case: file “%@” is ignored, but in workdir cache. This might have unintended consequences.", path);
   }];
 #endif
-	
-	return YES;
+  
+  return YES;
 }
 
 - (BOOL)readConflictingFilesIntoIndex:(GCIndex *)index error:(NSError**)error {
