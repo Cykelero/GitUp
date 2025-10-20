@@ -31,12 +31,12 @@ typedef NS_ENUM(NSUInteger, GCLiveRepositoryDiffWhitespaceMode) {
 };
 
 typedef void (^GCDiffIndexesBlock)(
-																	 GCIndex* from,
-																	 GCIndex* to,
-																	 NSArray<NSString*>** outModifiedPaths,
-																	 NSArray<NSString*>** outDeletedPaths,
-																	 NSArray<NSString*>** outRenameInvolvingConflictPaths
-																	 );
+  GCIndex* from,
+  GCIndex* to,
+  NSArray<NSString*>** outModifiedPaths,
+  NSArray<NSString*>** outDeletedPaths,
+  NSArray<NSString*>** outRenameInvolvingConflictPaths
+);
 
 extern NSString* const GCLiveRepositoryDidChangeNotification;
 extern NSString* const GCLiveRepositoryWorkingDirectoryDidChangeNotification;
