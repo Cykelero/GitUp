@@ -822,19 +822,23 @@ cleanup:
 
 - (BOOL)updatingCacheWriteWorkingDirectory:(GCIndex*)newWorkingDirectoryIndex
                                      stage:(GCIndex*)newStageIndex
+                    protectingFromDeletion:(NSArray<NSString*>*)undeletablePaths
                                      error:(NSError**)error
                           diffIndexesBlock:(GCDiffIndexesBlock)diffIndexesBlock {
   // Get index diff (implementing this in Objective-C would be too much for me)
   NSArray<NSString*>* modifiedPaths;
   NSArray<NSString*>* deletedPaths;
   NSArray<NSString*>* renameInvolvingConflictPaths;
+  BOOL undeletablePathsDidAffectResult;
   
   diffIndexesBlock(
     _workingDirectoryContent,
     newWorkingDirectoryIndex,
+    undeletablePaths,
     &modifiedPaths,
     &deletedPaths,
-    &renameInvolvingConflictPaths
+    &renameInvolvingConflictPaths,
+    &undeletablePathsDidAffectResult
   );
   
   NSArray<NSString*>* allPathsToWrite = [modifiedPaths arrayByAddingObjectsFromArray:[deletedPaths arrayByAddingObjectsFromArray:renameInvolvingConflictPaths]];
@@ -845,7 +849,10 @@ cleanup:
   
   NSString* forcedWorkdirStrategyName = [[[NSProcessInfo processInfo] environment] objectForKey:@"RETCON_FORCED_CHECKOUT_STRATEGY"];
   
-  if ([forcedWorkdirStrategyName isEqualToString:@"file-list"]) {
+  if (undeletablePathsDidAffectResult) {
+    // Can only use file list strategy, because only it honors undeletablePaths
+    performFileListCheckout = YES;
+  } else if ([forcedWorkdirStrategyName isEqualToString:@"file-list"]) {
     performFileListCheckout = YES;
   } else if ([forcedWorkdirStrategyName isEqualToString:@"bruteforce"]) {
     performFileListCheckout = NO;
