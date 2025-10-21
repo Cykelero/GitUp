@@ -33,9 +33,11 @@ typedef NS_ENUM(NSUInteger, GCLiveRepositoryDiffWhitespaceMode) {
 typedef void (^GCDiffIndexesBlock)(
   GCIndex* from,
   GCIndex* to,
+  NSArray<NSString*>* undeletablePaths,
   NSArray<NSString*>** outModifiedPaths,
   NSArray<NSString*>** outDeletedPaths,
-  NSArray<NSString*>** outRenameInvolvingConflictPaths
+  NSArray<NSString*>** outRenameInvolvingConflictPaths,
+  BOOL* outUndeletablePathsDidHaveAnEffect
 );
 
 extern NSString* const GCLiveRepositoryDidChangeNotification;
@@ -110,6 +112,7 @@ extern NSString* const GCLiveRepositoryAmendOperationReason;
 /// Overwrites the working directory and index with the provided values. Updates `workingDirectoryContent` and `existingIgnoredPaths`.
 - (BOOL)updatingCacheWriteWorkingDirectory:(GCIndex*)newWorkingDirectoryIndex
                                      stage:(GCIndex*)newStageIndex
+                    protectingFromDeletion:(NSArray<NSString*>*)undeletablePaths
                                      error:(NSError**)error
                           diffIndexesBlock:(GCDiffIndexesBlock)diffIndexesBlock;
 @property(nonatomic) BOOL workingDirectoryThresholdsEnabled;
