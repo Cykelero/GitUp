@@ -391,6 +391,14 @@ static inline BOOL _EqualIndexes(GCIndex* index1, GCIndex* index2) {
 	return result;
 }
 
+- (GCIndex*)createIndexFromFile:(NSString*)path error:(NSError**)error {
+  git_index* fileIndex;
+  CALL_LIBGIT2_FUNCTION_RETURN(nil, git_index_open, &fileIndex, GCGitPathFromFileSystemPath(path));
+  GCIndex* index = [[GCIndex alloc] initWithRepository:nil index:fileIndex];
+  CALL_LIBGIT2_FUNCTION_RETURN(nil, git_index_set_caps, fileIndex, GIT_INDEXCAP_IGNORE_CASE);
+  return index;
+}
+
 - (BOOL)resetRepositoryIndexToIndex:(GCIndex*)sourceIndex error:(NSError**)error {
   // Get repository index
   GCIndex* repositoryIndex = [self readRepositoryIndex:error];

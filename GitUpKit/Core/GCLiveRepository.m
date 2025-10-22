@@ -28,7 +28,7 @@
 
 #import "XLFacilityMacros.h"
 
-#define kFSLatency 0.1 // helps ensure we refresh only once FS state is consistent
+#define kFSLatency 0.1 // likely important for performance
 
 #define kMaxSnapshots 100
 #define kSnapshotsFileName @"snapshots.data"
@@ -66,8 +66,6 @@ static _Atomic int32_t _allocatedCount = ATOMIC_VAR_INIT(0);
   FSEventStreamRef _workingDirectoryStream;
   BOOL _workingDirectoryChanged;
   BOOL _workingDirectoryDiffSizeExceedsThreshold;
-  /// Value is meaningless outside of `updateWorkingDirectoryCacheResettingFuses:`
-  GCIndex* _reusableRepositoryIndexSnapshot;
   CFRunLoopTimerRef _updateTimer;  // Can't use a NSTimer because of retain-cycle
   CFAbsoluteTime _timerLastFireTime;
   GCRepositoryState _state;
@@ -218,11 +216,6 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
     _minUpdateInterval = 1 - kFSLatency;
     _workingDirectoryThresholdsEnabled = YES;
     _workingDirectoryDiffSizeExceedsThreshold = NO;
-    _reusableRepositoryIndexSnapshot = [self createInMemoryIndex:error];
-    
-    if (_reusableRepositoryIndexSnapshot == nil) {
-      return nil;
-    }
 
     _state = [super state];
 
@@ -563,10 +556,21 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
   return *error == nil ? YES : NO;
 }
 
-- (void)updateWorkingDirectoryCacheResettingFuses:(BOOL)resetFuses {
-  // NOTE: We might be able to avoid writing to the repo's index by using git_index_add instead of git_index_add_bypath, although that would likely require modifying libgit2. That would both reduce side-effects (no index change), improve performance noticeably, and simplify the code (no need to smartly reload last cache, and to restore the repo index). Make sure to preserve stat cache. See: https://stackoverflow.com/a/57952919.
-  // NOTE: Or! We could use git_repository_set_index twice, to temporarily set our cache index's owner to the repo. This carries side-effects (see https://github.com/libgit2/libgit2/issues/3531#issuecomment-163438788) but these seem actually favorable. (although, that might mean the stat cache would get need to be updated twice—once when updating the stage (i.e. staging), and once when updating the workdir cache)
+/// Creates an index backed by a dedicated, reused file
+///
+/// This returns a file-backed index which is suitable for (temporary) use as the repository's index, allowing use of staging methods.
+///
+/// This index is always backed by the same file. If no file exists, Git creates it. Otherwise, the index starts with the contents of the previous index created by this method, which is useful for performance.
+///
+/// Once the caller is done with this index, the index shouldn't read/write its file anymore, as that file will eventually change when used by a different index created with this method. Calling `git_index_forget_file` on the index is one way of preventing such mistakes.
+- (GCIndex*)createIndexForWorkingDirectoryContent:(NSError**)error {
+  NSString* indexPath = [[self repositoryPath] stringByAppendingPathComponent:@"index"];
+  NSString* workingDirectoryContentIndexPath = [[self privateAppDirectoryPath] stringByAppendingPathComponent:@"workdir-cache-index"];
   
+  return [self createIndexFromFile:workingDirectoryContentIndexPath error:&error];
+}
+
+- (void)updateWorkingDirectoryCacheResettingFuses:(BOOL)resetFuses {
   BOOL success = NO;
   NSError* theError = nil;
   NSError* __strong* error = &theError; // allows usage of CALL_LIBGIT2_FUNCTION_GOTO
@@ -583,10 +587,14 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
   // Prepare
   CFAbsoluteTime startTime = CFAbsoluteTimeGetCurrent();
   
-  repositoryIndex = [self readRepositoryIndex:&theError]; // the new cache will be read into the workdir index
-  [self resetIndex:_reusableRepositoryIndexSnapshot toIndex:repositoryIndex error:&theError]; // this allows restoring the workdir index afterwards. persisting this variable means performing fewer updates, each time
+  repositoryIndex = [self readRepositoryIndex:&theError];
   
   if (repositoryIndex == nil || theError != nil) {
+    goto cleanup;
+  }
+  
+  workingDirectoryContent = [self createIndexForWorkingDirectoryContent:&error];
+  if (workingDirectoryContent == nil || theError != nil) {
     goto cleanup;
   }
   
@@ -597,22 +605,16 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
     | GIT_STATUS_OPT_RECURSE_UNTRACKED_DIRS
     | GIT_STATUS_OPT_INCLUDE_IGNORED
     | GIT_STATUS_OPT_UPDATE_INDEX;
-  
-  // Load current cache into workdir index
-  // Using the current cache as a starting point helps performance (avoids re-reading large files). It's optional, though, as the final result will be the same.
-  if (_workingDirectoryContent && _workingDirectoryContentUpdateError == nil) {
-    [self resetRepositoryIndexToIndex:_workingDirectoryContent error:&theError];
-    
-    if (theError != nil) {
-      goto cleanup;
-    }
-  }
+
+  // // Set content index as repository index
+  // // This allows us to read (stage) files directly to this index, removing the need to change the actual repository index.
+  git_repository_set_index(self.private, workingDirectoryContent.private);
   
   // Make sure there is an entry in workdir cache for all tracked paths
   // Regular Git behavior is that, for any path included in the index, that path is protected from gitignore rules (it cannot be ignored). However, since we've replaced the index content with the current workdir cache, this effect will not apply to all paths that it should, when running git_status_list_new. So here, we're populating all missing paths to make sure they have the proper protection.
   // Also, if this process populates any gitignore path, make a note: this is relevant later.
   // Of note, some paths that should not be protected will be (newly-ignored paths, when a gitignore file changes). This is fixed later.
-  [self populateIndex:repositoryIndex withMissingFilesFromIndex:_reusableRepositoryIndexSnapshot didCopyGitIgnoreFile:&someWorkdirGitignoreFileChanged error:&error];
+  [self populateIndex:workingDirectoryContent withMissingFilesFromIndex:repositoryIndex didCopyGitIgnoreFile:&someWorkdirGitignoreFileChanged error:&error];
   
   if (theError != nil) {
     goto cleanup;
@@ -683,7 +685,7 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
     // This takes into account the anti-ignore effect of being in the repo index.
     NSMutableArray* pathsToRemove = [[NSMutableArray alloc] init];
     
-    [repositoryIndex enumerateFilesUsingBlock:^(NSString* path, GCFileMode mode, NSString* sha1, BOOL* stop) {
+    [workingDirectoryContent enumerateFilesUsingBlock:^(NSString* path, GCFileMode mode, NSString* sha1, BOOL* stop) {
       int ignored = 0;
       int status = git_ignore_path_is_ignored(&ignored, self.private, GCGitPathFromFileSystemPath(path));
       CHECK_LIBGIT2_FUNCTION_CALL(stop = YES, status, == GIT_OK);
@@ -693,13 +695,13 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
       }
     }];
     
-    [_reusableRepositoryIndexSnapshot enumerateFilesUsingBlock:^(NSString* path, GCFileMode mode, NSString* sha1, BOOL* stop) {
+    [repositoryIndex enumerateFilesUsingBlock:^(NSString* path, GCFileMode mode, NSString* sha1, BOOL* stop) {
       [pathsToRemove removeObject:path];
     }];
     
     // Remove them from index, and add them to existingIgnoredPaths
     for (id pathToRemove in pathsToRemove) {
-      [self removeEntry:pathToRemove fromIndex:repositoryIndex failIfMissing:YES error:&error];
+      [self removeEntry:pathToRemove fromIndex:workingDirectoryContent failIfMissing:YES error:&error];
       [existingIgnoredPaths addObject:pathToRemove];
     }
     
@@ -722,9 +724,7 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
         accumulatedRelevantEntrySize += newFileStats.st_size;
         
         if (accumulatedRelevantEntrySize > maximumTotalEntrySize) {
-          // Too big. Restore repository index and abort.
-          [self resetRepositoryIndexToIndex:_reusableRepositoryIndexSnapshot error:&theError];
-          
+          // Total size of changed files too high: abort
           _workingDirectoryDiffSizeExceedsThreshold = YES; // getting to this point can be slow, so remember
           *error = GCNewError(kGCErrorCode_Retcon_ThresholdExceeded, @"Total status entry size too large when updating working directory");
           goto cleanup;
@@ -747,12 +747,12 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
         if (entry->index_to_workdir->new_file.mode == GIT_FILEMODE_COMMIT) {
           // Not yet supported: match whatever state the submodule is in in the index
           // More often than not, this will show the submodule as unchanged. (so, not show it at all)
-          [self syncEntry:[NSString stringWithUTF8String:newFilePath] fromOtherIndex:_reusableRepositoryIndexSnapshot toIndex:repositoryIndex error:&theError];
+          [self syncEntry:[NSString stringWithUTF8String:newFilePath] fromOtherIndex:repositoryIndex toIndex:workingDirectoryContent error:&theError];
           continue;
         }
         
         // Add to index
-        CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_index_add_bypath, repositoryIndex.private, newFilePath);
+        CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_index_add_bypath, workingDirectoryContent.private, newFilePath);
         break;
         
       case GIT_STATUS_IGNORED:
@@ -761,18 +761,18 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
         break;
         
       case GIT_STATUS_WT_DELETED:
-        CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_index_remove_bypath, repositoryIndex.private, entry->index_to_workdir->old_file.path);
+        CALL_LIBGIT2_FUNCTION_GOTO(cleanup, git_index_remove_bypath, workingDirectoryContent.private, entry->index_to_workdir->old_file.path);
         break;
         
       case GIT_STATUS_CONFLICTED:
         // Add to index (replace conflict with concrete file from workdir)
         // Equivalent to a regular CALL_LIBGIT2_FUNCTION_GOTO call, except doesn't error if the file doesn't exist
-        int addByPathReturn = git_index_add_bypath(repositoryIndex.private, newFilePath);
+        int addByPathReturn = git_index_add_bypath(workingDirectoryContent.private, newFilePath);
         CHECK_LIBGIT2_FUNCTION_CALL(goto cleanup, addByPathReturn, == GIT_OK || addByPathReturn == GIT_ENOTFOUND);
         
         if (addByPathReturn == GIT_ENOTFOUND) {
           // But, if the file doesn't exist, we do need to remove it from the index
-          [self removeEntry:[NSString stringWithUTF8String:newFilePath] fromIndex:repositoryIndex failIfMissing:true error:&theError];
+          [self removeEntry:[NSString stringWithUTF8String:newFilePath] fromIndex:workingDirectoryContent failIfMissing:true error:&theError];
         }
         break;
         
@@ -782,16 +782,9 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
     }
   }
   
-  // Check for errors before writing repository index
-  if (theError != nil) {
-    goto cleanup;
-  }
-  
-  // Create in-memory index from repository index
-  workingDirectoryContent = [self createInMemoryCopyOfIndex:repositoryIndex error:&theError];
-  
-  // Restore repository index
-  [self resetRepositoryIndexToIndex:_reusableRepositoryIndexSnapshot error:&theError];
+  // Disassociate cache index from its file
+  // This is purely as a safeguard. The file will be reused, but this index must remain constant; thanks to this call, any accidental writes of the index to disk should fail.
+  git_index_forget_file(workingDirectoryContent.private);
   
   // Final error check
   if (theError != nil) {
@@ -802,6 +795,9 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
   
   // Finish up
 cleanup:
+  if (repositoryIndex != nil) {
+    git_repository_set_index(self.private, repositoryIndex.private);
+  }
   git_status_list_free(list);
   
   if (success) {
