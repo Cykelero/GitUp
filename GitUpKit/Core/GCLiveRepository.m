@@ -593,7 +593,7 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
     goto cleanup;
   }
   
-  workingDirectoryContent = [self createIndexForWorkingDirectoryContent:&error];
+  workingDirectoryContent = [self createIndexForWorkingDirectoryContent:&theError];
   if (workingDirectoryContent == nil || theError != nil) {
     goto cleanup;
   }
@@ -781,6 +781,10 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
         break;
     }
   }
+  
+  // Write cache index to disk
+  // // Allows reusing it as a starting point next time.
+  git_index_write(workingDirectoryContent.private);
   
   // Disassociate cache index from its file
   // This is purely as a safeguard. The file will be reused, but this index must remain constant; thanks to this call, any accidental writes of the index to disk should fail.
