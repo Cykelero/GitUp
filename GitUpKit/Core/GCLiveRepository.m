@@ -528,7 +528,7 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
 
 /// Used when updating workdir cache. Copies sourceIndex entries to targetIndex if they're no entry at that path already. Also outputs the information of whether any gitignore file was added.
 - (BOOL)populateIndex:(GCIndex*)targetIndex withMissingFilesFromIndex:(GCIndex*)sourceIndex didCopyGitIgnoreFile:(BOOL*)didCopyGitIgnoreFile error:(NSError**)error {
-  NSMutableArray* targetIndexFilePaths = [[NSMutableArray alloc] init];
+  NSMutableSet* targetIndexFilePaths = [[NSMutableSet alloc] init];
   
   if (didCopyGitIgnoreFile) {
     *didCopyGitIgnoreFile = NO;
