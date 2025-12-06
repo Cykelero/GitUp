@@ -66,6 +66,8 @@ static _Atomic int32_t _allocatedCount = ATOMIC_VAR_INIT(0);
   FSEventStreamRef _workingDirectoryStream;
   BOOL _workingDirectoryChanged;
   BOOL _workingDirectoryDiffSizeExceedsThreshold;
+  /// Whether ignores *not* contained in the workdir changed.
+  BOOL _ignoreConfigChanged;
   CFRunLoopTimerRef _updateTimer;  // Can't use a NSTimer because of retain-cycle
   CFAbsoluteTime _timerLastFireTime;
   GCRepositoryState _state;
@@ -110,9 +112,10 @@ static _Atomic int32_t _allocatedCount = ATOMIC_VAR_INIT(0);
 - (void)_timer:(CFRunLoopTimerRef)timer {
   _timerLastFireTime = CFAbsoluteTimeGetCurrent();
   if (timer == _updateTimer) {
-    [self _notifyWorkingDirectoryChanged:_workingDirectoryChanged gitDirectoryChanged:_gitDirectoryChanged];
+    [self _notifyWorkingDirectoryChanged:_workingDirectoryChanged gitDirectoryChanged:_gitDirectoryChanged ignoreConfigChanged:_ignoreConfigChanged];
     _workingDirectoryChanged = NO;
     _gitDirectoryChanged = NO;
+    _ignoreConfigChanged = NO;
   } else if (timer == _snapshotsTimer) {
     [self _saveAutomaticSnapshotIfPending];
   } else {
@@ -146,9 +149,14 @@ static void _TimerCallBack(CFRunLoopTimerRef timer, void* info) {
       if (stream == _gitDirectoryStream) {
         if (!strncmp(path, gitDirectoryPath, length)) {
           const char* subPath = &path[length];
-          if (!subPath[0] || !strncmp(subPath, "refs/", 5) || !strncmp(subPath, "logs/", 5)) {  // We only care about ".git/", ".git/refs/*" and ".git/logs/*"
+          BOOL infoChanged = !strncmp(subPath, "info/", 5);
+          if (!subPath[0] || !strncmp(subPath, "refs/", 5) || !strncmp(subPath, "logs/", 5) || infoChanged) {  // We only care about ".git/", ".git/refs/*", ".git/logs/*" and ".git/info/*"
             XLOG_DEBUG(@"Processed file system event for '%s'", path);
             _gitDirectoryChanged = YES;
+            if (infoChanged) {
+              // Because the paths we get only have folder-level granularity, consider any info/ change as a change to info/exclude
+              _ignoreConfigChanged = YES;
+            }
             CFRunLoopTimerSetNextFireDate(_updateTimer, earliestAllowedFireDate);
           } else {
             XLOG_DEBUG(@"Dropped file system event for '%s'", path);
@@ -219,7 +227,7 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
 
     _state = [super state];
 
-    [self updateWorkingDirectoryCacheResettingFuses:YES];
+    [self updateWorkingDirectoryCacheResettingFuses:YES ignoreConfigChanged:NO];
 
     CFAbsoluteTime time = CFAbsoluteTimeGetCurrent();
     _history = [self loadHistoryUsingSorting:[self.class historySorting] error:error];
@@ -283,11 +291,17 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
 #endif
 }
 
+// Convenience method, to avoid changing too many callsites, to make merging upstream changes easier
 - (void)_notifyWorkingDirectoryChanged:(BOOL)workingDirectoryChanged gitDirectoryChanged:(BOOL)gitDirectoryChanged {
+  [self _notifyWorkingDirectoryChanged:workingDirectoryChanged gitDirectoryChanged:gitDirectoryChanged ignoreConfigChanged:NO];
+}
+
+- (void)_notifyWorkingDirectoryChanged:(BOOL)workingDirectoryActuallyChanged gitDirectoryChanged:(BOOL)gitDirectoryChanged ignoreConfigChanged:(BOOL)ignoreConfigChanged {
   BOOL referencesChanged = false;
+  BOOL workingDirectoryChanged = workingDirectoryActuallyChanged || ignoreConfigChanged;
   
   if (workingDirectoryChanged) {
-    [self updateWorkingDirectoryCacheResettingFuses:YES];
+    [self updateWorkingDirectoryCacheResettingFuses:YES ignoreConfigChanged:ignoreConfigChanged];
 
     if (_statusMode != kGCLiveRepositoryStatusMode_Disabled) {
       [self _updateStatus:YES];
@@ -570,7 +584,7 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
   return [self createIndexFromFile:workingDirectoryContentIndexPath error:&error];
 }
 
-- (void)updateWorkingDirectoryCacheResettingFuses:(BOOL)resetFuses {
+- (void)updateWorkingDirectoryCacheResettingFuses:(BOOL)resetFuses ignoreConfigChanged:(BOOL)ignoreConfigChanged {
   BOOL success = NO;
   NSError* theError = nil;
   NSError* __strong* error = &theError; // allows usage of CALL_LIBGIT2_FUNCTION_GOTO
@@ -657,9 +671,9 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
   // Update cache index
   // // First, delete any now-ignored files from the index
   // // Only if a gitignore file changed. (or for the first refresh)
-  // // Goal: if a file is in the workdir cache, is not in the indx, and becomes included by gitignore rules, it should be removed from the cache. By default this won't happen: since we've loaded the workdir cache in the index, any cached file is technically in the index, so Git will ignore its newly-ignored status.
-  // // However, we musntn't indiscriminately remove all ignored files: files that are ignored but tracked (because in the actual index) must be included in the workdir cache, and kept up to date.
-  // // This likely doesn't trigger for ignored gitignore files, which is a bug.
+  // // Goal: if a file is in the workdir cache, is not in the index, and becomes included by gitignore rules, it should be removed from the cache. By default this won't happen: since we've loaded the workdir cache in the index, any cached file is technically in the index, so Git will ignore its newly-ignored status.
+  // // However, we mustn't indiscriminately remove all ignored files: files that are ignored but tracked (because in the actual index) must be included in the workdir cache, and kept up to date.
+  // // Ignored gitignore files show up in this status list every refresh, as GIT_STATUS_IGNORED. That's too often, but at least changes to them won't be incorrectly ignored by this process.
   // // `someWorkdirGitignoreFileChanged` might already be true, from copying missing stage entries above.
   for (size_t i = 0, count = git_status_list_entrycount(list); i < count; ++i) {
     const git_status_entry* entry = git_status_byindex(list, i);
@@ -680,7 +694,7 @@ static void _StreamCallback(ConstFSEventStreamRef streamRef, void* clientCallBac
     }
   }
   
-  if (someWorkdirGitignoreFileChanged) {
+  if (ignoreConfigChanged || someWorkdirGitignoreFileChanged) {
     // List now-ignored paths
     // This takes into account the anti-ignore effect of being in the repo index.
     NSMutableArray* pathsToRemove = [[NSMutableArray alloc] init];
@@ -893,7 +907,7 @@ cleanup:
   
   if (someGitignoreFileChanged) {
     // Reload the whole cache from disk
-    [self updateWorkingDirectoryCacheResettingFuses:YES];
+    [self updateWorkingDirectoryCacheResettingFuses:YES ignoreConfigChanged:NO];
     
     // This is the slow, simple way.
     // To do this better:
